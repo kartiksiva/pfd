@@ -1,0 +1,28 @@
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    env_file:
+      - ../backend/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../backend:/app
+      - ../STANDARD_PDD_TEMPLATE.md:/STANDARD_PDD_TEMPLATE.md:ro
+      - ../data/uploads:/app/uploads
+      - ../data/exports:/app/exports
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    command: sh -c "npm run build && npm run start -- --hostname 0.0.0.0 --port 3000"
+    env_file:
+      - ../frontend/.env.local
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ../frontend:/app

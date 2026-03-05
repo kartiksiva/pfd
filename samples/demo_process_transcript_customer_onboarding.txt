@@ -1,0 +1,55 @@
+[00:00:00] Facilitator: Thanks everyone. Today we’re documenting the customer onboarding process for our B2B SaaS product, PFCD Analytics.
+
+[00:00:09] Sales Manager: The process starts when a prospect signs the commercial agreement in DocuSign. As soon as the agreement status changes to signed, DocuSign sends a webhook to our CRM, HubSpot.
+
+[00:00:22] RevOps Analyst: HubSpot then creates a "Closed Won" deal event. We have an automation rule that creates an onboarding ticket in Jira Service Management and posts a message in the #onboarding Slack channel.
+
+[00:00:38] Onboarding Specialist: I pick up the ticket within 4 business hours. My SLA is same-day first contact if the ticket is created before 2 PM local time. I review contract scope: number of business units, integrations included, and target go-live date.
+
+[00:00:56] Onboarding Specialist: Next I send the welcome email with a scheduling link and a data intake form. The customer must complete the intake form before kickoff. The form collects admin contacts, reporting requirements, existing process documents, and sample files.
+
+[00:01:15] Customer Success Manager: If the intake form is incomplete after 3 days, we trigger reminder one by email. After 6 days, reminder two goes to both the project lead and executive sponsor.
+
+[00:01:28] Technical Consultant: Once intake is complete, we run a kickoff call. Inputs are signed contract, completed intake form, and internal handoff notes from sales. During kickoff we confirm scope, define success metrics, and freeze the first release timeline.
+
+[00:01:45] Facilitator: Who approves scope baseline?
+
+[00:01:47] Technical Consultant: The customer project manager and our implementation lead both approve in the kickoff summary document.
+
+[00:01:54] Implementation Lead: After scope approval, we provision tenant environments in our platform. We create production and sandbox tenants, configure SSO if requested, and assign role-based access controls.
+
+[00:02:11] Security Officer: For enterprise customers we need a completed security questionnaire and DPA confirmation before enabling production data sync.
+
+[00:02:20] Data Engineer: Integration setup follows. For each source system, the customer provides API credentials or SFTP details. We validate connectivity, map fields to PFCD canonical schema, and run a sample ingestion job.
+
+[00:02:36] Data Engineer: If sample ingestion fails, we create a blocker issue and classify it as credentials, schema mismatch, or source downtime. We cannot proceed to UAT until all blockers are resolved.
+
+[00:02:49] QA Analyst: After ingestion passes, we run data quality checks: completeness above 98%, duplicate rate below 1%, and critical fields null rate below 0.5%. Results go into the onboarding QA checklist.
+
+[00:03:05] Customer Success Manager: Then we conduct user acceptance testing. Customer power users execute 12 core scenarios. Exit criteria: at least 11 of 12 pass and no Sev-1 defects open.
+
+[00:03:17] QA Analyst: Sev-1 means total process failure or incorrect financial impact reporting. Sev-2 can be worked around and does not block go-live if customer accepts.
+
+[00:03:28] Implementation Lead: Once UAT passes, we hold go-live readiness review. Required approvals are implementation lead, customer project manager, and support manager.
+
+[00:03:38] Support Manager: We verify monitoring alerts, support runbook, escalation matrix, and backup contact list. We also schedule hypercare coverage for 2 weeks after go-live.
+
+[00:03:50] Onboarding Specialist: Go-live is executed during agreed maintenance window. We switch integration from sandbox endpoints to production endpoints and run smoke tests within 30 minutes.
+
+[00:04:03] Technical Consultant: If smoke tests fail, rollback is immediate: revert endpoints, pause scheduled jobs, and notify stakeholders in Slack and email within 15 minutes.
+
+[00:04:15] Customer Success Manager: If smoke tests pass, we send go-live confirmation and start hypercare. During hypercare, daily check-ins are mandatory for the first 5 business days.
+
+[00:04:27] Facilitator: What marks onboarding complete?
+
+[00:04:29] Customer Success Manager: Completion criteria are: 1) production live for 10 business days, 2) no unresolved Sev-1 defects, 3) customer signs onboarding completion note.
+
+[00:04:42] RevOps Analyst: Final step is to close the Jira onboarding ticket, update HubSpot lifecycle stage to "Active Customer", and trigger handoff to long-term account management.
+
+[00:04:54] Facilitator: Any known bottlenecks?
+
+[00:04:56] Data Engineer: Biggest delays are missing API credentials and late security approvals.
+
+[00:05:01] Onboarding Specialist: Also delayed stakeholder responses for UAT scheduling.
+
+[00:05:06] Facilitator: Good. We’ll include controls for reminders and escalation in the process document.
