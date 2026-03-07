@@ -33,6 +33,7 @@ def create_job(
     retention_days: int = 7,
 ) -> JobRecord:
     now = datetime.utcnow()
+    fallback_provider = "openai" if provider == "google" else "google"
     payload = {
         "status": JobStatus.queued.value,
         "provider": provider,
@@ -43,7 +44,7 @@ def create_job(
             "transcription_model": "",
             "multimodal_model": "",
             "generation_model": "",
-            "fallback_transcription": {"provider": "google" if provider == "openai" else "openai", "model": ""},
+            "fallback_transcription": {"provider": fallback_provider, "model": ""},
         },
         "input_manifest": input_manifest,
         "limits_applied": limits_applied,

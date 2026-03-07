@@ -13,7 +13,11 @@ from app.schemas import JobStatus
 
 
 def _fallback_provider(primary: str) -> str:
-    return "openai" if primary == "google" else "google"
+    if primary == "google":
+        return "openai"
+    if primary == "openai":
+        return "google"
+    return "google"
 
 
 def _set_failure(db: Session, job_id: str, code: str, message: str) -> None:

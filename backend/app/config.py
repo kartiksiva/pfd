@@ -18,6 +18,8 @@ class Settings(BaseSettings):
 
     openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
     google_api_key: Optional[str] = Field(default=None, alias="GOOGLE_API_KEY")
+    ollama_base_url: str = Field(default="http://127.0.0.1:11434", alias="OLLAMA_BASE_URL")
+    ollama_model: str = Field(default="llama3.1", alias="OLLAMA_MODEL")
     llm_enabled: bool = Field(default=True, alias="LLM_ENABLED")
 
     database_url: str = Field(default="sqlite:///./pfcd.db", alias="DATABASE_URL")

@@ -105,9 +105,44 @@ def _check_google(api_key: Optional[str], timeout_seconds: float = 10.0) -> Prov
         )
 
 
+def _check_ollama(base_url: str, timeout_seconds: float = 10.0) -> ProviderHealthResult:
+    url = f"{base_url.rstrip('/')}/api/tags"
+    start = time.perf_counter()
+    try:
+        with httpx.Client(timeout=timeout_seconds) as client:
+            response = client.get(url)
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        ok = response.status_code == 200
+        msg = "Ollama API reachable." if ok else f"Ollama API returned status {response.status_code}."
+        return ProviderHealthResult(
+            provider="ollama",
+            ok=ok,
+            latency_ms=elapsed_ms,
+            status_code=response.status_code,
+            message=msg,
+        )
+    except httpx.TimeoutException:
+        return ProviderHealthResult(
+            provider="ollama",
+            ok=False,
+            latency_ms=None,
+            status_code=None,
+            message="Ollama API request timed out.",
+        )
+    except httpx.HTTPError as exc:
+        return ProviderHealthResult(
+            provider="ollama",
+            ok=False,
+            latency_ms=None,
+            status_code=None,
+            message=f"Ollama API request failed: {exc.__class__.__name__}.",
+        )
+
+
 def check_providers_health(timeout_seconds: float = 10.0) -> List[ProviderHealthResult]:
     settings = get_settings()
     return [
         _check_openai(api_key=settings.openai_api_key, timeout_seconds=timeout_seconds),
         _check_google(api_key=settings.google_api_key, timeout_seconds=timeout_seconds),
+        _check_ollama(base_url=settings.ollama_base_url, timeout_seconds=timeout_seconds),
     ]

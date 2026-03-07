@@ -7,6 +7,7 @@ Initial scaffold for:
 
 ## Defaults Chosen
 - Default provider: `google`
+- Available providers: `google`, `openai`, `ollama`
 - Default processing profile: `balanced`
 - Database: SQLite (adapter-ready for Postgres/SQL Server)
 - Background jobs: in-process (adapter-ready for Celery/Redis)

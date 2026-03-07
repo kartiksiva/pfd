@@ -195,12 +195,40 @@ def _openai_extract(transcript_text: str, api_key: str, model: str) -> Optional[
     return _normalize_extraction(parsed) if parsed else None
 
 
-def extract_with_llm(provider: str, transcript_text: str, api_key: Optional[str], model: str) -> Optional[Dict[str, Any]]:
+def _ollama_extract(transcript_text: str, model: str, base_url: str) -> Optional[Dict[str, Any]]:
+    url = f"{base_url.rstrip('/')}/api/generate"
+    prompt = PROMPT_TEMPLATE.replace("__TRANSCRIPT__", transcript_text[:120000])
+    body = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "format": "json",
+        "options": {"temperature": 0.1},
+    }
+    with httpx.Client(timeout=120.0) as client:
+        response = client.post(url, json=body)
+        response.raise_for_status()
+        data = response.json()
+    text = data.get("response", "")
+    parsed = _extract_json(text)
+    return _normalize_extraction(parsed) if parsed else None
+
+
+def extract_with_llm(
+    provider: str,
+    transcript_text: str,
+    api_key: Optional[str],
+    model: str,
+    ollama_base_url: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     if not transcript_text or not api_key:
-        return None
+        if provider != "ollama":
+            return None
     try:
         if provider == "google":
             return _google_extract(transcript_text=transcript_text, api_key=api_key, model=model)
+        if provider == "ollama":
+            return _ollama_extract(transcript_text=transcript_text, model=model, base_url=ollama_base_url or "http://127.0.0.1:11434")
         return _openai_extract(transcript_text=transcript_text, api_key=api_key, model=model)
     except Exception:
         return None

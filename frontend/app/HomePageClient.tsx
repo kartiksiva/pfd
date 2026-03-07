@@ -158,6 +158,7 @@ export default function HomePage() {
             <select value={provider} onChange={(e) => setProvider(e.target.value)}>
               <option value="google">google</option>
               <option value="openai">openai</option>
+              <option value="ollama">ollama</option>
             </select>
           </div>
           <div>

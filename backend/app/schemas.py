@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 class Provider(str, Enum):
     openai = "openai"
     google = "google"
+    ollama = "ollama"
 
 
 class ProcessingProfile(str, Enum):

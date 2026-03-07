@@ -75,6 +75,8 @@ def health() -> dict[str, str]:
         "default_provider": settings.default_provider,
         "openai_key_configured": "yes" if settings.openai_api_key else "no",
         "google_key_configured": "yes" if settings.google_api_key else "no",
+        "ollama_base_url": settings.ollama_base_url,
+        "ollama_model": settings.ollama_model,
     }
 
 
