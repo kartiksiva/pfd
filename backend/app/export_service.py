@@ -13,16 +13,41 @@ def _render_markdown(pdd: Dict, sipoc: List[Dict]) -> str:
     return render_standard_pdd_markdown(pdd=pdd, sipoc=sipoc)
 
 
-def _render_pdf(md_text: str, target_path: Path) -> None:
+def _render_pdf_from_docx(docx_path: Path, target_path: Path) -> None:
     c = canvas.Canvas(str(target_path), pagesize=A4)
-    width, height = A4
+    _, height = A4
     y = height - 40
-    for line in md_text.splitlines():
+
+    doc = Document(str(docx_path))
+    for block in doc.element.body:
         if y < 40:
             c.showPage()
             y = height - 40
-        c.drawString(40, y, line[:120])
-        y -= 14
+
+        if block.tag.endswith("}p"):
+            paragraph = next((p for p in doc.paragraphs if p._element is block), None)
+            text = (paragraph.text if paragraph else "").strip()
+            if not text:
+                y -= 8
+                continue
+            c.drawString(40, y, text[:115])
+            y -= 14
+            continue
+
+        if block.tag.endswith("}tbl"):
+            table = next((t for t in doc.tables if t._element is block), None)
+            if not table:
+                continue
+            y -= 4
+            for row in table.rows:
+                row_text = " | ".join(cell.text.strip().replace("\n", " ") for cell in row.cells)
+                if y < 40:
+                    c.showPage()
+                    y = height - 40
+                c.drawString(40, y, row_text[:115])
+                y -= 13
+            y -= 6
+
     c.save()
 
 
@@ -180,7 +205,7 @@ def generate_exports(job_id: str, pdd: Dict, sipoc: List[Dict], exports_root: Pa
 
     md_path.write_text(md_content, encoding="utf-8")
     json_path.write_text(json.dumps({"pdd": pdd, "sipoc": sipoc}, indent=2), encoding="utf-8")
-    _render_pdf(md_content, pdf_path)
     _render_docx(pdd, sipoc, docx_path)
+    _render_pdf_from_docx(docx_path, pdf_path)
 
     return {"md": str(md_path), "json": str(json_path), "pdf": str(pdf_path), "docx": str(docx_path)}
