@@ -1,4 +1,6 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
+
+from app.pipelines.frame_selector import select_key_frames
 
 
 def _split_transcript_into_steps(transcript_text: str) -> List[Dict]:
@@ -68,11 +70,12 @@ def _merge_signals(transcript_steps: List[Dict], visual_events: List[Dict], proc
     return merged
 
 
-def build_media_understanding_payload(evidence: Dict) -> Dict:
+def build_media_understanding_payload(evidence: Dict, input_manifest: Optional[Dict] = None) -> Dict:
     transcript_text = evidence.get("transcript_text", "")
     visual_events = evidence.get("visual_events", [])
     process_candidates = evidence.get("process_candidates", [])
     structured_extraction = evidence.get("structured_extraction")
+    key_frames = select_key_frames(input_manifest=input_manifest, evidence=evidence)
 
     transcript_steps = _split_transcript_into_steps(transcript_text)
     merged_steps = _merge_signals(transcript_steps, visual_events, process_candidates)
@@ -82,6 +85,7 @@ def build_media_understanding_payload(evidence: Dict) -> Dict:
         "transcript_text": transcript_text,
         "transcript_steps": transcript_steps,
         "visual_events": visual_events,
+        "key_frames": key_frames,
         "process_candidates": process_candidates,
         "merged_steps": merged_steps,
         "structured_extraction": structured_extraction,

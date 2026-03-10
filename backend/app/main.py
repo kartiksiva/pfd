@@ -1,9 +1,10 @@
 from pathlib import Path
+from datetime import datetime, timedelta
 from typing import Optional
 from uuid import uuid4
 
 from contextlib import asynccontextmanager
-from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, Form, UploadFile
+from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, Form, Query, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -17,6 +18,7 @@ from app.provider_health import check_providers_health
 from app.retention import run_retention_sweep_once, start_retention_scheduler
 from app.repository import create_job as repo_create_job
 from app.repository import get_job as repo_get_job
+from app.repository import list_jobs as repo_list_jobs
 from app.repository import update_job_metadata, update_job_status
 from app.schemas import ApiEnvelope, JobCreateResponseData, JobStatus, PDDDocumentModel, ProcessingProfile, Provider, SIPOCRowModel
 from app.upload_validation import ValidationError, validate_and_persist_inputs
@@ -110,6 +112,7 @@ async def create_job(
     background_tasks: BackgroundTasks,
     provider: Provider = Form(default=Provider.google.value),
     processing_profile: ProcessingProfile = Form(default=ProcessingProfile.balanced.value),
+    process_name: Optional[str] = Form(default=None, max_length=255),
     context_notes: Optional[str] = Form(default=None, max_length=2000),
     video_file: Optional[UploadFile] = File(default=None),
     audio_file: Optional[UploadFile] = File(default=None),
@@ -141,6 +144,7 @@ async def create_job(
         job_id=job_id,
         provider=provider.value,
         processing_profile=processing_profile.value,
+        process_name=process_name,
         context_notes=context_notes,
         input_manifest=input_manifest,
         limits_applied=limits_applied,
@@ -156,6 +160,37 @@ async def create_job(
     )
     background_tasks.add_task(process_job_async, job.id)
     return _success_response(data=data.model_dump(mode="json"), status_code=202)
+
+
+@app.get("/api/jobs")
+def list_jobs(
+    limit: int = Query(default=50, ge=1, le=200),
+    status: Optional[JobStatus] = Query(default=None),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    rows = repo_list_jobs(db, limit=limit, status=(status.value if status else None))
+    return _success_response(
+        data={
+            "jobs": [
+                {
+                    "id": row.id,
+                    "status": row.status,
+                    "provider": row.provider,
+                    "processing_profile": row.processing_profile,
+                    "process_name": row.process_name,
+                    "created_at": row.created_at,
+                    "updated_at": row.updated_at,
+                    "expires_at": row.expires_at,
+                    "error_code": row.error_code,
+                    "artifacts": row.artifacts,
+                }
+                for row in rows
+            ],
+            "count": len(rows),
+            "limit": limit,
+            "status_filter": status.value if status else None,
+        }
+    )
 
 
 @app.get("/api/jobs/{job_id}")
@@ -174,6 +209,7 @@ def get_job(job_id: str, db: Session = Depends(get_db)) -> JSONResponse:
             "status": job.status,
             "provider": job.provider,
             "processing_profile": job.processing_profile,
+            "process_name": job.process_name,
             "model_plan": job.model_plan,
             "input_manifest": job.input_manifest,
             "limits_applied": job.limits_applied,
@@ -286,11 +322,21 @@ def finalize_job(job_id: str, db: Session = Depends(get_db)) -> JSONResponse:
             status_code=409,
         )
     try:
-        artifacts = generate_exports(job_id=job.id, pdd=job.draft_pdd, sipoc=job.draft_sipoc, exports_root=exports_root)
+        processed_at = datetime.utcnow()
+        artifacts = generate_exports(
+            job_id=job.id,
+            pdd=job.draft_pdd,
+            sipoc=job.draft_sipoc,
+            exports_root=exports_root,
+            process_name=job.process_name,
+            llm_provider=(job.model_plan or {}).get("provider", job.provider),
+            processed_at=processed_at,
+        )
         job = update_job_metadata(
             db,
             job,
             artifacts=artifacts,
+            expires_at=processed_at + timedelta(days=settings.retention_days),
             progress={"stage": "export_generation", "percent": 100},
         )
     except Exception as exc:

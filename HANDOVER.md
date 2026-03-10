@@ -40,7 +40,7 @@ Backend (`backend/.env`):
 - `OPENAI_API_KEY`
 - `GOOGLE_API_KEY`
 - `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`)
-- `OLLAMA_MODEL` (default `llama3.1`)
+- `OLLAMA_MODEL` (default `qwen3-vl:8b`)
 - `LLM_ENABLED=true`
 - `DEFAULT_PROVIDER=google`
 

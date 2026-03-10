@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.models import JobRecord
@@ -27,6 +28,7 @@ def create_job(
     job_id: Optional[str] = None,
     provider: str,
     processing_profile: str,
+    process_name: Optional[str],
     context_notes: Optional[str],
     input_manifest: dict,
     limits_applied: dict,
@@ -38,6 +40,7 @@ def create_job(
         "status": JobStatus.queued.value,
         "provider": provider,
         "processing_profile": processing_profile,
+        "process_name": process_name,
         "context_notes": context_notes,
         "model_plan": {
             "provider": provider,
@@ -73,6 +76,13 @@ def get_job(db: Session, job_id: str) -> Optional[JobRecord]:
     return db.query(JobRecord).filter(JobRecord.id == job_id).first()
 
 
+def list_jobs(db: Session, *, limit: int = 50, status: Optional[str] = None) -> list[JobRecord]:
+    q = db.query(JobRecord)
+    if status:
+        q = q.filter(JobRecord.status == status)
+    return q.order_by(desc(JobRecord.created_at)).limit(limit).all()
+
+
 def list_expired_jobs(db: Session, now: Optional[datetime] = None) -> list[JobRecord]:
     now = now or datetime.utcnow()
     return db.query(JobRecord).filter(JobRecord.expires_at <= now, JobRecord.status != JobStatus.expired.value).all()
@@ -101,6 +111,7 @@ def update_job_metadata(
     draft_sipoc: Optional[list] = None,
     review_notes: Optional[dict] = None,
     artifacts: Optional[dict] = None,
+    expires_at: Optional[datetime] = None,
     error_code: Optional[str] = None,
     error_message: Optional[str] = None,
 ) -> JobRecord:
@@ -118,6 +129,8 @@ def update_job_metadata(
         job.review_notes = review_notes
     if artifacts is not None:
         job.artifacts = artifacts
+    if expires_at is not None:
+        job.expires_at = expires_at
     if error_code is not None:
         job.error_code = error_code
     if error_message is not None:

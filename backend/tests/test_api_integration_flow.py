@@ -1,4 +1,5 @@
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -57,6 +58,11 @@ def test_end_to_end_job_review_finalize_export_flow(tmp_path: Path):
     assert finalize.status_code == 202
     assert finalize.json()["data"]["status"] == "completed"
 
+    job_after_finalize = client.get(f"/api/jobs/{job_id}")
+    assert job_after_finalize.status_code == 200
+    expires_at = datetime.fromisoformat(job_after_finalize.json()["data"]["expires_at"])
+    assert expires_at > datetime.utcnow() + timedelta(days=6)
+
     finalize_again = client.post(f"/api/jobs/{job_id}/finalize")
     assert finalize_again.status_code == 200
     assert finalize_again.json()["data"]["status"] == "completed"
@@ -74,3 +80,26 @@ def test_end_to_end_job_review_finalize_export_flow(tmp_path: Path):
     assert len(js.content) > 0
     assert len(pdf.content) > 0
     assert len(docx.content) > 0
+
+
+def test_list_jobs_endpoint_returns_recent_jobs(tmp_path: Path):
+    client = TestClient(app)
+
+    transcript_path = tmp_path / "list-flow.txt"
+    transcript_path.write_text("Start\nValidate\nComplete\n", encoding="utf-8")
+    with transcript_path.open("rb") as f:
+        create = client.post(
+            "/api/jobs",
+            files={"transcript_file": ("list-flow.txt", f, "text/plain")},
+            data={"provider": "google", "processing_profile": "balanced"},
+        )
+    assert create.status_code == 202
+    job_id = create.json()["data"]["job_id"]
+
+    listing = client.get("/api/jobs?limit=20")
+    assert listing.status_code == 200
+    payload = listing.json()
+    assert payload["success"] is True
+    jobs = payload["data"]["jobs"]
+    assert isinstance(jobs, list)
+    assert any(row["id"] == job_id for row in jobs)

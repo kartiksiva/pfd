@@ -1,8 +1,9 @@
 import json
 from html import escape
 from datetime import date
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from docx import Document
 from reportlab.lib import colors
@@ -24,6 +25,8 @@ def _render_pdf_from_docx(docx_path: Path, target_path: Path) -> None:
     heading_3 = ParagraphStyle("DocxHeading3", parent=styles["Heading3"], fontSize=11, leading=14, spaceBefore=4, spaceAfter=2)
     body = ParagraphStyle("DocxBody", parent=styles["BodyText"], fontSize=10, leading=13, spaceAfter=3)
     bullet = ParagraphStyle("DocxBullet", parent=body, leftIndent=12, bulletIndent=4)
+    table_cell = ParagraphStyle("DocxTableCell", parent=body, fontSize=8.6, leading=10, spaceAfter=0, wordWrap="CJK")
+    table_header = ParagraphStyle("DocxTableHeader", parent=table_cell, fontName="Helvetica-Bold")
 
     pdf = SimpleDocTemplate(
         str(target_path),
@@ -61,8 +64,13 @@ def _render_pdf_from_docx(docx_path: Path, target_path: Path) -> None:
             if not table:
                 continue
             table_rows = []
-            for row in table.rows:
-                table_rows.append([escape(cell.text.strip().replace("\n", " ")) for cell in row.cells])
+            for row_idx, row in enumerate(table.rows):
+                rendered_row = []
+                for cell in row.cells:
+                    text = escape(cell.text.strip().replace("\n", " "))
+                    style = table_header if row_idx == 0 else table_cell
+                    rendered_row.append(Paragraph(text or "-", style))
+                table_rows.append(rendered_row)
             if not table_rows:
                 continue
             col_width = (A4[0] - (24 * mm)) / len(table_rows[0])
@@ -233,15 +241,51 @@ def _render_docx(pdd: Dict, sipoc: List[Dict], target_path: Path) -> None:
     doc.save(str(target_path))
 
 
-def generate_exports(job_id: str, pdd: Dict, sipoc: List[Dict], exports_root: Path) -> Dict:
+def _safe_name_token(raw: str) -> str:
+    chars = []
+    for ch in (raw or "").strip().lower():
+        if ch.isalnum():
+            chars.append(ch)
+        elif ch in {" ", "-", "_"}:
+            chars.append("_")
+    token = "".join(chars).strip("_")
+    while "__" in token:
+        token = token.replace("__", "_")
+    return token[:80] or "process"
+
+
+def _resolve_process_name(pdd: Dict, provided_name: Optional[str]) -> str:
+    if provided_name and provided_name.strip():
+        return provided_name.strip()
+    steps = pdd.get("steps", []) if isinstance(pdd.get("steps"), list) else []
+    if steps and str(steps[0].get("title", "")).strip():
+        return str(steps[0]["title"]).strip()
+    return "process"
+
+
+def generate_exports(
+    job_id: str,
+    pdd: Dict,
+    sipoc: List[Dict],
+    exports_root: Path,
+    process_name: Optional[str] = None,
+    llm_provider: Optional[str] = None,
+    processed_at: Optional[datetime] = None,
+) -> Dict:
     job_dir = exports_root / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
+    processed_at = processed_at or datetime.utcnow()
+    process_token = _safe_name_token(_resolve_process_name(pdd, process_name))
+    provider_token = _safe_name_token(llm_provider or "provider")
+    date_token = processed_at.strftime("%Y%m%d")
+    base_name = f"{process_token}_processed_{date_token}_{provider_token}"
+
     md_content = _render_markdown(pdd, sipoc)
-    md_path = job_dir / "report.md"
-    json_path = job_dir / "report.json"
-    pdf_path = job_dir / "report.pdf"
-    docx_path = job_dir / "report.docx"
+    md_path = job_dir / f"{base_name}.md"
+    json_path = job_dir / f"{base_name}.json"
+    pdf_path = job_dir / f"{base_name}.pdf"
+    docx_path = job_dir / f"{base_name}.docx"
 
     md_path.write_text(md_content, encoding="utf-8")
     json_path.write_text(json.dumps({"pdd": pdd, "sipoc": sipoc}, indent=2), encoding="utf-8")

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 const defaultProvider = process.env.NEXT_PUBLIC_DEFAULT_PROVIDER ?? "google";
@@ -11,6 +12,7 @@ type JobStatus = "queued" | "processing" | "needs_review" | "completed" | "faile
 export default function HomePage() {
   const [provider, setProvider] = useState(defaultProvider);
   const [profile, setProfile] = useState(defaultProfile);
+  const [processName, setProcessName] = useState("");
   const [contextNotes, setContextNotes] = useState("");
   const [transcriptFile, setTranscriptFile] = useState<File | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -31,6 +33,8 @@ export default function HomePage() {
   const executedProvider = providerExecution?.executed_provider ?? job?.model_plan?.provider ?? job?.provider ?? "-";
   const fallbackUsed = Boolean(providerExecution?.fallback_used ?? job?.model_plan?.fallback_used);
   const primaryProviderError = providerExecution?.primary_error ?? job?.model_plan?.primary_error ?? "";
+  const mediaMode = job?.model_plan?.media_processing?.mode ?? "-";
+  const mediaModeNote = job?.model_plan?.media_processing?.note ?? "";
 
   async function toJsonSafe(res: Response): Promise<any> {
     try {
@@ -49,6 +53,7 @@ export default function HomePage() {
     const fd = new FormData();
     fd.append("provider", provider);
     fd.append("processing_profile", profile);
+    if (processName.trim()) fd.append("process_name", processName.trim());
     if (contextNotes) fd.append("context_notes", contextNotes);
     if (transcriptFile) fd.append("transcript_file", transcriptFile);
     if (audioFile) fd.append("audio_file", audioFile);
@@ -151,10 +156,21 @@ export default function HomePage() {
     if (canReview) loadDraft(jobId);
   }, [jobId, canReview]);
 
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("job_id");
+    if (fromUrl && !jobId) {
+      setJobId(fromUrl);
+      setStatusMsg(`Loaded job ${fromUrl} from history.`);
+    }
+  }, [jobId]);
+
   return (
     <main>
       <h1>Process Documentation Agent</h1>
       <p className="muted">Upload evidence, review generated PDD/SIPOC, finalize, and export.</p>
+      <p>
+        <Link href="/history">View Job History</Link>
+      </p>
 
       <section className="card">
         <h2>Submit Job</h2>
@@ -174,6 +190,7 @@ export default function HomePage() {
               <option value="quality">quality</option>
               <option value="low_cost">low_cost</option>
             </select>
+            <p className="muted">`quality` may process full media and incur higher cost. Prefer transcript upload from team recordings.</p>
           </div>
         </div>
         <div className="row">
@@ -189,6 +206,15 @@ export default function HomePage() {
         <div>
           <label>Video</label>
           <input type="file" accept="video/*" onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)} />
+        </div>
+        <div>
+          <label>Process Name</label>
+          <input
+            type="text"
+            placeholder="e.g., invoice_reconciliation"
+            value={processName}
+            onChange={(e) => setProcessName(e.target.value)}
+          />
         </div>
         <div>
           <label>Context Notes (max 2000)</label>
@@ -216,6 +242,8 @@ export default function HomePage() {
         <p className="muted">Stage: {job?.progress?.stage || "-"}</p>
         <p className="muted">Requested Provider: {requestedProvider}</p>
         <p className="muted">Executed Provider: {executedProvider}</p>
+        <p className="muted">Media Mode: {mediaMode}</p>
+        {mediaModeNote ? <p className="muted">Media Note: {mediaModeNote}</p> : null}
         <p className="muted">Fallback Used: {fallbackUsed ? "yes" : "no"}</p>
         {fallbackUsed ? (
           <p style={{ color: "#92400e" }}>
