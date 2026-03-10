@@ -1,11 +1,15 @@
 import json
+from html import escape
 from datetime import date
 from pathlib import Path
 from typing import Dict, List
 
 from docx import Document
+from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from app.pdd_template import render_standard_pdd_markdown
 
 
@@ -14,41 +18,77 @@ def _render_markdown(pdd: Dict, sipoc: List[Dict]) -> str:
 
 
 def _render_pdf_from_docx(docx_path: Path, target_path: Path) -> None:
-    c = canvas.Canvas(str(target_path), pagesize=A4)
-    _, height = A4
-    y = height - 40
+    styles = getSampleStyleSheet()
+    heading_1 = ParagraphStyle("DocxHeading1", parent=styles["Heading1"], fontSize=16, leading=20, spaceAfter=6)
+    heading_2 = ParagraphStyle("DocxHeading2", parent=styles["Heading2"], fontSize=13, leading=17, spaceBefore=6, spaceAfter=4)
+    heading_3 = ParagraphStyle("DocxHeading3", parent=styles["Heading3"], fontSize=11, leading=14, spaceBefore=4, spaceAfter=2)
+    body = ParagraphStyle("DocxBody", parent=styles["BodyText"], fontSize=10, leading=13, spaceAfter=3)
+    bullet = ParagraphStyle("DocxBullet", parent=body, leftIndent=12, bulletIndent=4)
+
+    pdf = SimpleDocTemplate(
+        str(target_path),
+        pagesize=A4,
+        leftMargin=12 * mm,
+        rightMargin=12 * mm,
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,
+    )
+    story = []
 
     doc = Document(str(docx_path))
     for block in doc.element.body:
-        if y < 40:
-            c.showPage()
-            y = height - 40
-
         if block.tag.endswith("}p"):
             paragraph = next((p for p in doc.paragraphs if p._element is block), None)
             text = (paragraph.text if paragraph else "").strip()
             if not text:
-                y -= 8
+                story.append(Spacer(1, 2))
                 continue
-            c.drawString(40, y, text[:115])
-            y -= 14
+            style_name = str(getattr(paragraph.style, "name", "") or "")
+            if style_name.startswith("Heading 1"):
+                story.append(Paragraph(escape(text), heading_1))
+            elif style_name.startswith("Heading 2"):
+                story.append(Paragraph(escape(text), heading_2))
+            elif style_name.startswith("Heading 3"):
+                story.append(Paragraph(escape(text), heading_3))
+            elif "List Bullet" in style_name:
+                story.append(Paragraph(escape(text), bullet, bulletText="•"))
+            else:
+                story.append(Paragraph(escape(text), body))
             continue
 
         if block.tag.endswith("}tbl"):
             table = next((t for t in doc.tables if t._element is block), None)
             if not table:
                 continue
-            y -= 4
+            table_rows = []
             for row in table.rows:
-                row_text = " | ".join(cell.text.strip().replace("\n", " ") for cell in row.cells)
-                if y < 40:
-                    c.showPage()
-                    y = height - 40
-                c.drawString(40, y, row_text[:115])
-                y -= 13
-            y -= 6
+                table_rows.append([escape(cell.text.strip().replace("\n", " ")) for cell in row.cells])
+            if not table_rows:
+                continue
+            col_width = (A4[0] - (24 * mm)) / len(table_rows[0])
+            pdf_table = Table(table_rows, repeatRows=1, colWidths=[col_width] * len(table_rows[0]))
+            pdf_table.setStyle(
+                TableStyle(
+                    [
+                        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#94a3b8")),
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e2e8f0")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#0f172a")),
+                        ("FONTSIZE", (0, 0), (-1, -1), 8.8),
+                        ("LEADING", (0, 0), (-1, -1), 10),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                        ("TOPPADDING", (0, 0), (-1, -1), 3),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ]
+                )
+            )
+            story.append(pdf_table)
+            story.append(Spacer(1, 6))
 
-    c.save()
+    if not story:
+        story.append(Paragraph("No content available for PDF export.", body))
+    pdf.build(story)
 
 
 def _add_labeled_bullet(doc: Document, label: str, value: str) -> None:

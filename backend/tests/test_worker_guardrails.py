@@ -112,3 +112,42 @@ def test_fallback_failure_sets_specific_error(monkeypatch):
     assert row.status == "failed"
     assert row.error_code == "ERR_FALLBACK_TRANSCRIPTION_FAILED"
 
+
+def test_fallback_success_is_visible_in_review_notes(monkeypatch):
+    job_id = _seed_job(provider="openai")
+
+    class CrashAdapter:
+        def run(self, _input_manifest):
+            raise RuntimeError("openai unavailable")
+
+    class SuccessAdapter:
+        def run(self, _input_manifest):
+            class Evidence:
+                provider = "google"
+                transcript_text = "Step one\nStep two"
+                visual_events = []
+                process_candidates = [{"source": "transcript", "action": "extract_steps", "summary": "Step one"}]
+                confidence = 0.85
+                structured_extraction = None
+
+            class Result:
+                model_plan = {"provider": "google", "transcription_model": "gemini-2.5-flash"}
+                usage_cost_estimate = {"currency": "USD", "estimated_total": 1.0, "estimated_per_media_hour": 3.0}
+                evidence = Evidence()
+
+            return Result()
+
+    def adapter_factory(provider):
+        if provider == "openai":
+            return CrashAdapter()
+        return SuccessAdapter()
+
+    monkeypatch.setattr("app.worker.get_provider_adapter", adapter_factory)
+    process_job_async(job_id)
+    row = _load_job(job_id)
+    assert row.status == "needs_review"
+    assert row.model_plan.get("requested_provider") == "openai"
+    assert row.model_plan.get("provider") == "google"
+    assert row.model_plan.get("fallback_used") is True
+    flags = row.review_notes.get("flags", [])
+    assert any(flag.get("type") == "provider_fallback_used" for flag in flags)

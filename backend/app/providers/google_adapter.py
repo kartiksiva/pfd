@@ -2,6 +2,7 @@ from typing import Dict
 
 from app.config import get_settings
 from app.providers.base import EvidencePayload, ProviderAdapter, has_audio_or_video, read_transcript_file
+from app.providers.media_transcription import transcribe_with_google
 from app.providers.structured_extraction import extract_with_llm
 
 
@@ -23,7 +24,12 @@ class GoogleAdapter(ProviderAdapter):
         if existing:
             return existing
         if has_audio_or_video(input_manifest):
-            return "[Google transcription placeholder]"
+            settings = get_settings()
+            return transcribe_with_google(
+                input_manifest=input_manifest,
+                api_key=settings.google_api_key,
+                model=self.resolve_model_plan()["transcription_model"],
+            )
         return ""
 
     def build_evidence(self, input_manifest: Dict, transcript_text: str) -> EvidencePayload:

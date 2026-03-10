@@ -25,6 +25,12 @@ export default function HomePage() {
   const canSubmit = useMemo(() => Boolean(transcriptFile || audioFile || videoFile), [transcriptFile, audioFile, videoFile]);
   const canReview = job?.status === "needs_review" || job?.status === "completed";
   const canFinalize = job?.status === "needs_review";
+  const isWorking = Boolean(jobId) && (!job || job?.status === "queued" || job?.status === "processing");
+  const providerExecution = job?.progress?.provider_execution;
+  const requestedProvider = providerExecution?.requested_provider ?? job?.provider ?? "-";
+  const executedProvider = providerExecution?.executed_provider ?? job?.model_plan?.provider ?? job?.provider ?? "-";
+  const fallbackUsed = Boolean(providerExecution?.fallback_used ?? job?.model_plan?.fallback_used);
+  const primaryProviderError = providerExecution?.primary_error ?? job?.model_plan?.primary_error ?? "";
 
   async function toJsonSafe(res: Response): Promise<any> {
     try {
@@ -193,9 +199,31 @@ export default function HomePage() {
 
       <section className="card">
         <h2>Status</h2>
+        {isWorking ? (
+          <div className="processingBanner" aria-live="polite" role="status">
+            <div className="processingHeader">
+              <span className="spinner" aria-hidden="true" />
+              <strong>Processing in progress</strong>
+            </div>
+            <p className="muted">Your files are being analyzed. Stage: {job?.progress?.stage || "queued"}</p>
+            <div className="progressRail" aria-hidden="true">
+              <span className="progressGlow" />
+            </div>
+          </div>
+        ) : null}
         <p className="muted">Job ID: {jobId || "-"}</p>
         <p className="muted">Status: {(job?.status as JobStatus) || "-"}</p>
         <p className="muted">Stage: {job?.progress?.stage || "-"}</p>
+        <p className="muted">Requested Provider: {requestedProvider}</p>
+        <p className="muted">Executed Provider: {executedProvider}</p>
+        <p className="muted">Fallback Used: {fallbackUsed ? "yes" : "no"}</p>
+        {fallbackUsed ? (
+          <p style={{ color: "#92400e" }}>
+            Selected provider failed. Output was generated with fallback provider "{executedProvider}". Re-run if you need the
+            originally selected provider.
+          </p>
+        ) : null}
+        {primaryProviderError ? <p className="muted">Primary Provider Error: {primaryProviderError}</p> : null}
         <p className="muted">Message: {statusMsg || "-"}</p>
         {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
       </section>

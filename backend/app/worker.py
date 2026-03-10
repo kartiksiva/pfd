@@ -1,4 +1,5 @@
 import time
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -66,11 +67,18 @@ def process_job_async(job_id: str) -> None:
             _set_failure(db, job_id, "ERR_JOB_TIMEOUT", "Job exceeded max processing duration.")
             return
 
-        adapter = get_provider_adapter(job.provider)
+        requested_provider = job.provider
+        adapter = get_provider_adapter(requested_provider)
         result = None
+        fallback_used = False
+        primary_error: Optional[str] = None
+        execution_provider = requested_provider
         try:
             result = adapter.run(job.input_manifest)
+            execution_provider = result.evidence.provider or requested_provider
         except Exception as primary_exc:
+            fallback_used = True
+            primary_error = str(primary_exc)[:300]
             update_job_metadata(
                 db,
                 job,
@@ -78,13 +86,15 @@ def process_job_async(job_id: str) -> None:
                     "stage": "provider_fallback",
                     "percent": 20,
                     "fallback_attempted": True,
-                    "primary_provider": job.provider,
-                    "primary_error": str(primary_exc)[:300],
+                    "primary_provider": requested_provider,
+                    "primary_error": primary_error,
                 },
             )
-            fallback = get_provider_adapter(_fallback_provider(job.provider))
+            fallback_provider = _fallback_provider(requested_provider)
+            fallback = get_provider_adapter(fallback_provider)
             try:
                 result = fallback.run(job.input_manifest)
+                execution_provider = result.evidence.provider or fallback_provider
             except Exception as fallback_exc:
                 _set_failure(
                     db,
@@ -111,12 +121,29 @@ def process_job_async(job_id: str) -> None:
             "confidence": result.evidence.confidence,
             "structured_extraction": result.evidence.structured_extraction,
         }
+        provider_execution = {
+            "requested_provider": requested_provider,
+            "executed_provider": execution_provider,
+            "fallback_used": fallback_used,
+            "primary_error": primary_error,
+        }
+        model_plan = dict(result.model_plan or {})
+        model_plan["requested_provider"] = requested_provider
+        model_plan["provider"] = execution_provider
+        model_plan["fallback_used"] = fallback_used
+        if primary_error:
+            model_plan["primary_error"] = primary_error
         update_job_metadata(
             db,
             job,
-            model_plan=result.model_plan,
+            model_plan=model_plan,
             usage_cost_estimate=result.usage_cost_estimate,
-            progress={"stage": "provider_routing", "percent": 25, "evidence": evidence_dict},
+            progress={
+                "stage": "provider_routing",
+                "percent": 25,
+                "evidence": evidence_dict,
+                "provider_execution": provider_execution,
+            },
         )
         if _is_timeout(job, started_at):
             _set_failure(db, job_id, "ERR_JOB_TIMEOUT", "Job exceeded max processing duration.")
@@ -126,7 +153,13 @@ def process_job_async(job_id: str) -> None:
         update_job_metadata(
             db,
             job,
-            progress={"stage": "media_understanding", "percent": 55, "evidence": evidence_dict, "media": media_payload},
+            progress={
+                "stage": "media_understanding",
+                "percent": 55,
+                "evidence": evidence_dict,
+                "media": media_payload,
+                "provider_execution": provider_execution,
+            },
         )
 
         extraction = extract_process_structure(media_payload)
@@ -141,6 +174,7 @@ def process_job_async(job_id: str) -> None:
                 "evidence": evidence_dict,
                 "media": media_payload,
                 "extraction": extraction,
+                "provider_execution": provider_execution,
             },
         )
         if _is_timeout(job, started_at):
@@ -150,6 +184,20 @@ def process_job_async(job_id: str) -> None:
         pdd = generate_pdd_document(extraction)
         sipoc = generate_sipoc_rows(extraction)
         review_notes = run_quality_checks(pdd=pdd, sipoc=sipoc, confidence=extraction.get("confidence", 0.0))
+        if fallback_used:
+            review_notes.setdefault("flags", []).append(
+                {
+                    "type": "provider_fallback_used",
+                    "path": "provider_execution",
+                    "message": (
+                        f"Selected provider '{requested_provider}' failed during processing. "
+                        f"Output was generated using fallback provider '{execution_provider}'."
+                    ),
+                }
+            )
+            review_notes.setdefault("assumptions", []).append(
+                "Primary provider failed. Re-run with your desired provider if provider-specific output is required."
+            )
 
         update_job_metadata(
             db,
@@ -164,6 +212,7 @@ def process_job_async(job_id: str) -> None:
                 "media": media_payload,
                 "extraction": extraction,
                 "review_notes": review_notes,
+                "provider_execution": provider_execution,
             },
         )
 
@@ -182,6 +231,7 @@ def process_job_async(job_id: str) -> None:
                 "media": media_payload,
                 "extraction": extraction,
                 "review_notes": review_notes,
+                "provider_execution": provider_execution,
             },
         )
     except Exception as exc:  # pragma: no cover - defensive branch for worker reliability.

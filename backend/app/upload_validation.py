@@ -9,7 +9,7 @@ MAX_FILE_SIZE_MB = 500
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
 VIDEO_MIME_TYPES = {"video/mp4", "video/quicktime", "video/x-msvideo"}
-AUDIO_MIME_TYPES = {"audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/m4a"}
+AUDIO_MIME_TYPES = {"audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/m4a", "audio/x-m4a"}
 TRANSCRIPT_MIME_TYPES = {"text/plain", "text/markdown", "application/pdf"}
 
 
