@@ -131,3 +131,28 @@ button {
     transform: translateX(320%);
   }
 }
+
+.historyTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.historyTable th,
+.historyTable td {
+  border: 1px solid var(--border);
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.historyTable th {
+  background: #f8fafc;
+}
+
+.historyLinks {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}

@@ -33,7 +33,10 @@ def test_google_adapter_uses_media_transcriber(monkeypatch, tmp_path: Path):
     video.write_bytes(b"fake")
     adapter = GoogleAdapter()
 
-    text = adapter.transcribe({"transcript": None, "audio": None, "video": {"storage_key": str(video), "content_type": "video/mp4"}})
+    text = adapter.transcribe(
+        {"transcript": None, "audio": None, "video": {"storage_key": str(video), "content_type": "video/mp4"}},
+        use_full_media=True,
+    )
     assert called["ok"] is True
     assert text == "google media transcript"
 
@@ -52,6 +55,9 @@ def test_openai_adapter_uses_media_transcriber(monkeypatch, tmp_path: Path):
     audio.write_bytes(b"fake")
     adapter = OpenAIAdapter()
 
-    text = adapter.transcribe({"transcript": None, "audio": {"storage_key": str(audio), "content_type": "audio/wav"}, "video": None})
+    text = adapter.transcribe(
+        {"transcript": None, "audio": {"storage_key": str(audio), "content_type": "audio/wav"}, "video": None},
+        use_full_media=True,
+    )
     assert called["ok"] is True
     assert text == "openai media transcript"

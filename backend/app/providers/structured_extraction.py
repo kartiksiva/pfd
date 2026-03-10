@@ -1,5 +1,7 @@
 import json
 import re
+import base64
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import httpx
@@ -152,13 +154,39 @@ def _normalize_extraction(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _google_extract(transcript_text: str, api_key: str, model: str) -> Optional[Dict[str, Any]]:
+def _frame_context_lines(frame_images: list[dict[str, Any]]) -> str:
+    if not frame_images:
+        return ""
+    lines = ["Frame evidence timestamps and reasons:"]
+    for frame in frame_images[:20]:
+        lines.append(
+            f"- {float(frame.get('timestamp_seconds', 0.0)):.2f}s | {str(frame.get('reason', 'frame'))}"
+        )
+    return "\n".join(lines)
+
+
+def _google_extract(transcript_text: str, api_key: str, model: str, frame_images: Optional[list[dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    prompt = PROMPT_TEMPLATE.replace("__TRANSCRIPT__", transcript_text[:120000])
-    body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"},
-    }
+    frame_images = frame_images or []
+    prompt_text = transcript_text[:120000] if transcript_text else "No transcript provided."
+    prompt = PROMPT_TEMPLATE.replace("__TRANSCRIPT__", prompt_text)
+    frame_ctx = _frame_context_lines(frame_images)
+    if frame_ctx:
+        prompt = f"{prompt}\n\n{frame_ctx}"
+    parts = [{"text": prompt}]
+    for frame in frame_images[:8]:
+        frame_path = Path(str(frame.get("path") or ""))
+        if not frame_path.exists():
+            continue
+        parts.append(
+            {
+                "inline_data": {
+                    "mime_type": "image/jpeg",
+                    "data": base64.b64encode(frame_path.read_bytes()).decode("ascii"),
+                }
+            }
+        )
+    body = {"contents": [{"parts": parts}], "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}}
     with httpx.Client(timeout=60.0) as client:
         response = client.post(url, json=body)
         response.raise_for_status()
@@ -173,17 +201,34 @@ def _google_extract(transcript_text: str, api_key: str, model: str) -> Optional[
     return _normalize_extraction(parsed) if parsed else None
 
 
-def _openai_extract(transcript_text: str, api_key: str, model: str) -> Optional[Dict[str, Any]]:
+def _openai_extract(
+    transcript_text: str,
+    api_key: str,
+    model: str,
+    frame_images: Optional[list[dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
     url = "https://api.openai.com/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}"}
-    prompt = PROMPT_TEMPLATE.replace("__TRANSCRIPT__", transcript_text[:120000])
+    frame_images = frame_images or []
+    prompt_text = transcript_text[:120000] if transcript_text else "No transcript provided."
+    prompt = PROMPT_TEMPLATE.replace("__TRANSCRIPT__", prompt_text)
+    frame_ctx = _frame_context_lines(frame_images)
+    if frame_ctx:
+        prompt = f"{prompt}\n\n{frame_ctx}"
+    content = [{"type": "text", "text": prompt}]
+    for frame in frame_images[:8]:
+        frame_path = Path(str(frame.get("path") or ""))
+        if not frame_path.exists():
+            continue
+        b64 = base64.b64encode(frame_path.read_bytes()).decode("ascii")
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
     body = {
         "model": model,
         "temperature": 0.1,
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": "You extract business process structure and return strict JSON only."},
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": content},
         ],
     }
     with httpx.Client(timeout=60.0) as client:
@@ -195,12 +240,29 @@ def _openai_extract(transcript_text: str, api_key: str, model: str) -> Optional[
     return _normalize_extraction(parsed) if parsed else None
 
 
-def _ollama_extract(transcript_text: str, model: str, base_url: str) -> Optional[Dict[str, Any]]:
+def _ollama_extract(
+    transcript_text: str,
+    model: str,
+    base_url: str,
+    frame_images: Optional[list[dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
     url = f"{base_url.rstrip('/')}/api/generate"
-    prompt = PROMPT_TEMPLATE.replace("__TRANSCRIPT__", transcript_text[:120000])
+    frame_images = frame_images or []
+    prompt_text = transcript_text[:120000] if transcript_text else "No transcript provided."
+    prompt = PROMPT_TEMPLATE.replace("__TRANSCRIPT__", prompt_text)
+    frame_ctx = _frame_context_lines(frame_images)
+    if frame_ctx:
+        prompt = f"{prompt}\n\n{frame_ctx}"
+    images = []
+    for frame in frame_images[:8]:
+        frame_path = Path(str(frame.get("path") or ""))
+        if not frame_path.exists():
+            continue
+        images.append(base64.b64encode(frame_path.read_bytes()).decode("ascii"))
     body = {
         "model": model,
         "prompt": prompt,
+        "images": images,
         "stream": False,
         "format": "json",
         "options": {"temperature": 0.1},
@@ -220,15 +282,22 @@ def extract_with_llm(
     api_key: Optional[str],
     model: str,
     ollama_base_url: Optional[str] = None,
+    frame_images: Optional[list[dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
-    if not transcript_text or not api_key:
+    frame_images = frame_images or []
+    if (not transcript_text and not frame_images) or not api_key:
         if provider != "ollama":
             return None
     try:
         if provider == "google":
-            return _google_extract(transcript_text=transcript_text, api_key=api_key, model=model)
+            return _google_extract(transcript_text=transcript_text, api_key=api_key, model=model, frame_images=frame_images)
         if provider == "ollama":
-            return _ollama_extract(transcript_text=transcript_text, model=model, base_url=ollama_base_url or "http://127.0.0.1:11434")
-        return _openai_extract(transcript_text=transcript_text, api_key=api_key, model=model)
+            return _ollama_extract(
+                transcript_text=transcript_text,
+                model=model,
+                base_url=ollama_base_url or "http://127.0.0.1:11434",
+                frame_images=frame_images,
+            )
+        return _openai_extract(transcript_text=transcript_text, api_key=api_key, model=model, frame_images=frame_images)
     except Exception:
         return None

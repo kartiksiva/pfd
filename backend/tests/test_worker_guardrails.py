@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from app.database import Base, SessionLocal, engine
+from app.database import Base, SessionLocal, engine, ensure_schema_compat
 from app.models import JobRecord
 from app.worker import process_job_async
 
@@ -14,6 +14,7 @@ def _seed_job(
     max_cost: float = 8.0,
 ) -> str:
     Base.metadata.create_all(bind=engine)
+    ensure_schema_compat()
     db = SessionLocal()
     try:
         job_id = str(uuid4())
@@ -77,7 +78,7 @@ def test_cost_guardrail_triggers_failure(monkeypatch):
     job_id = _seed_job(max_cost=1.0)
 
     class HighCostAdapter:
-        def run(self, _input_manifest):
+        def run(self, _input_manifest, processing_profile="balanced"):
             class Evidence:
                 provider = "google"
                 transcript_text = "x"
@@ -103,7 +104,7 @@ def test_fallback_failure_sets_specific_error(monkeypatch):
     job_id = _seed_job()
 
     class CrashAdapter:
-        def run(self, _input_manifest):
+        def run(self, _input_manifest, processing_profile="balanced"):
             raise RuntimeError("provider down")
 
     monkeypatch.setattr("app.worker.get_provider_adapter", lambda _provider: CrashAdapter())
@@ -117,11 +118,11 @@ def test_fallback_success_is_visible_in_review_notes(monkeypatch):
     job_id = _seed_job(provider="openai")
 
     class CrashAdapter:
-        def run(self, _input_manifest):
+        def run(self, _input_manifest, processing_profile="balanced"):
             raise RuntimeError("openai unavailable")
 
     class SuccessAdapter:
-        def run(self, _input_manifest):
+        def run(self, _input_manifest, processing_profile="balanced"):
             class Evidence:
                 provider = "google"
                 transcript_text = "Step one\nStep two"

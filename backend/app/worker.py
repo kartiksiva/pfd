@@ -74,7 +74,7 @@ def process_job_async(job_id: str) -> None:
         primary_error: Optional[str] = None
         execution_provider = requested_provider
         try:
-            result = adapter.run(job.input_manifest)
+            result = adapter.run(job.input_manifest, processing_profile=job.processing_profile)
             execution_provider = result.evidence.provider or requested_provider
         except Exception as primary_exc:
             fallback_used = True
@@ -93,7 +93,7 @@ def process_job_async(job_id: str) -> None:
             fallback_provider = _fallback_provider(requested_provider)
             fallback = get_provider_adapter(fallback_provider)
             try:
-                result = fallback.run(job.input_manifest)
+                result = fallback.run(job.input_manifest, processing_profile=job.processing_profile)
                 execution_provider = result.evidence.provider or fallback_provider
             except Exception as fallback_exc:
                 _set_failure(
@@ -149,7 +149,7 @@ def process_job_async(job_id: str) -> None:
             _set_failure(db, job_id, "ERR_JOB_TIMEOUT", "Job exceeded max processing duration.")
             return
 
-        media_payload = build_media_understanding_payload(evidence_dict)
+        media_payload = build_media_understanding_payload(evidence_dict, input_manifest=job.input_manifest)
         update_job_metadata(
             db,
             job,

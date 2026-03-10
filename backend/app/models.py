@@ -15,6 +15,7 @@ class JobRecord(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     processing_profile: Mapped[str] = mapped_column(String(32), nullable=False)
+    process_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     context_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     model_plan: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     input_manifest: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
