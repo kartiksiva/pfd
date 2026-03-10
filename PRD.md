@@ -7,7 +7,7 @@ Build an internal demo web app that accepts process evidence (`video`, `audio`, 
 1. Process Definition Document (PDD)
 2. SIPOC map
 
-Outputs must be reviewable/editable in-app and exportable as Markdown, JSON, and PDF.
+Outputs must be reviewable/editable in-app and exportable as Markdown, JSON, PDF, and DOCX.
 
 ## 2. Users
 - Internal business/process teams
@@ -23,12 +23,12 @@ Outputs must be reviewable/editable in-app and exportable as Markdown, JSON, and
   - Transcript file
 - Async processing with job status tracking
 - Runtime model provider selection per job
-- Supported providers in MVP: OpenAI and Google
+- Supported providers in MVP: OpenAI, Google, and Ollama
 - English-only generation
 - Fixed-template PDD
 - Single consolidated SIPOC map
 - In-app review/edit before finalization
-- Export as `.md`, `.json`, `.pdf`
+- Export as `.md`, `.json`, `.pdf`, `.docx`
 - Retention: auto-delete uploads/artifacts after 7 days
 - Per-job processing/token caps
 - Target AI run-cost band: `$2-$8` per source media hour
@@ -61,7 +61,7 @@ Outputs must be reviewable/editable in-app and exportable as Markdown, JSON, and
   - Audio: transcription + step extraction
   - Transcript: structure extraction
 - System shall merge signals when multiple inputs exist.
-- System shall route processing through selected provider (`openai` or `google`).
+- System shall route processing through selected provider (`openai`, `google`, or `ollama`).
 - System shall attempt transcription fallback before marking provider-stage failure.
 
 ### FR-3 Generation
@@ -77,7 +77,7 @@ Outputs must be reviewable/editable in-app and exportable as Markdown, JSON, and
 - System shall support explicit finalize action to lock final version.
 
 ### FR-5 Export
-- System shall export finalized outputs in Markdown, JSON, and PDF.
+- System shall export finalized outputs in Markdown, JSON, PDF, and DOCX.
 
 ### FR-6 Job Tracking
 - System shall provide status values:
@@ -107,12 +107,12 @@ Outputs must be reviewable/editable in-app and exportable as Markdown, JSON, and
 - Provider abstraction to avoid vendor lock-in in orchestration logic.
 
 ## 7. API Requirements (v1)
-- `POST /api/jobs` (multipart create job; includes `provider=openai|google`)
+- `POST /api/jobs` (multipart create job; includes `provider=openai|google|ollama`)
 - `GET /api/jobs/{job_id}` (status/progress)
 - `GET /api/jobs/{job_id}/draft` (draft PDD + SIPOC)
 - `PUT /api/jobs/{job_id}/draft` (save edits)
 - `POST /api/jobs/{job_id}/finalize` (finalize artifacts)
-- `GET /api/jobs/{job_id}/exports/{format}` (`md|json|pdf`)
+- `GET /api/jobs/{job_id}/exports/{format}` (`md|json|pdf|docx`)
 - `DELETE /api/jobs/{job_id}` (manual cleanup)
 
 ## 8. UX Requirements
@@ -138,14 +138,14 @@ Outputs must be reviewable/editable in-app and exportable as Markdown, JSON, and
 2. Audio-only upload produces draft and exports successfully.
 3. Video + transcript upload processes asynchronously and reaches review stage.
 4. Invalid file type or >500 MB file is rejected with clear error.
-5. Finalized job exports all three formats (`md`, `json`, `pdf`).
+5. Finalized job exports all four formats (`md`, `json`, `pdf`, `docx`).
 6. Job artifacts expire and are deleted after 7 days.
-7. User can choose `openai` or `google` per job and view provider in status.
+7. User can choose `openai`, `google`, or `ollama` per job and view provider in status.
 8. Fallback transcription path is attempted before hard provider-stage failure.
 
 ## 11. Implementation Stack (MVP)
 - Frontend: Next.js
 - Backend: FastAPI
 - Processing: async worker queue
-- AI: managed multimodal APIs (OpenAI + Google, runtime selectable)
+- AI: managed/local multimodal APIs (OpenAI + Google + Ollama, runtime selectable)
 - Deployment: local Docker

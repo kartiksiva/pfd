@@ -7,13 +7,13 @@ The system accepts `video`, `audio`, and/or `transcript` inputs, then generates:
 - Process Definition Document (PDD)
 - SIPOC map
 
-Outputs are reviewed in-app and exported as `Markdown`, `JSON`, and `PDF`.
+Outputs are reviewed in-app and exported as `Markdown`, `JSON`, `PDF`, and `DOCX`.
 
 ## Product Constraints (Must Follow)
 - MVP mode is internal demo with no authentication.
 - Accept at least one input file per job.
 - Max upload size is 500 MB per file.
-- Provider must be selectable per job: `openai` or `google`.
+- Provider must be selectable per job: `openai`, `google`, or `ollama`.
 - Language support is English only.
 - SIPOC output is a single consolidated map.
 - Processing is asynchronous with job status tracking.
@@ -57,7 +57,7 @@ Use a multi-agent pipeline orchestrated by a Job Orchestrator.
 - Routes job to `needs_review` with review notes when checks are not strong enough.
 
 7. `export-agent`
-- Builds finalized artifacts: `.md`, `.json`, `.pdf`.
+- Builds finalized artifacts: `.md`, `.json`, `.pdf`, `.docx`.
 - Exports only from finalized or accepted draft state.
 
 8. `retention-agent`
@@ -75,7 +75,7 @@ Minimum internal contracts for handoffs:
 1. `JobRecord`
 - `id`
 - `status`
-- `provider` (`openai|google`)
+- `provider` (`openai|google|ollama`)
 - `model_plan`
 - `input_manifest`
 - `limits_applied`
@@ -119,7 +119,7 @@ Minimum internal contracts for handoffs:
 
 6. `GET /api/jobs/{job_id}/exports/{format}`
 - Owner: `export-agent`
-- Result: return `md|json|pdf`.
+- Result: return `md|json|pdf|docx`.
 
 7. `DELETE /api/jobs/{job_id}`
 - Owners: `retention-agent` + API layer
@@ -159,7 +159,7 @@ Minimum internal contracts for handoffs:
 - Acceptance scenarios in `PRD.md` section 10 are required release gates.
 
 ## Provider Benchmark Policy
-- Keep both provider paths operational in MVP.
+- Keep all provider paths operational in MVP.
 - Run periodic benchmark set across providers and compare:
   - PDD completeness
   - SIPOC correctness and coverage
