@@ -211,6 +211,7 @@ export default function HomePage() {
             <select value={documentTemplate} onChange={(e) => setDocumentTemplate(e.target.value)}>
               <option value="pdd">pdd</option>
               <option value="sop">sop</option>
+              <option value="custom_sop">custom_sop</option>
             </select>
           </div>
         </div>

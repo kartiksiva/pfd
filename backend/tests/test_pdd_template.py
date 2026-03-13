@@ -1,4 +1,4 @@
-from app.pdd_template import render_standard_pdd_markdown
+from app.pdd_template import render_custom_sop_markdown, render_standard_pdd_markdown
 
 
 def test_render_standard_pdd_markdown_contains_template_sections():
@@ -126,3 +126,27 @@ def test_render_standard_pdd_markdown_uses_template_path_env(tmp_path, monkeypat
 
     assert "Process Definition Document (PDD)" in md
     assert "## 8. Inputs & Outputs" in md
+
+
+def test_render_custom_sop_markdown_uses_root_template(monkeypatch):
+    monkeypatch.delenv("CUSTOM_SOP_TEMPLATE_PATH", raising=False)
+    md = render_custom_sop_markdown(
+        document={
+            "document_control": {"sop_title": "Invoice Validation SOP", "department": "Finance", "version": "1.2"},
+            "purpose": "Validate invoices before posting.",
+            "scope": {"in_scope": ["Invoice validation"]},
+            "process_overview": {"flow_summary": "Receive -> Validate -> Post"},
+            "steps": [{"title": "Receive Invoice"}, {"title": "Validate Invoice"}],
+            "roles_and_responsibilities": [{"role": "AP Analyst"}],
+            "exception_handling": {"exception_matrix": [{"scenario": "Missing PO", "trigger_symptom": "PO absent", "action_to_take": "Reject"}]},
+            "controls_and_compliance": {"controls": [{"description": "Dual control check"}]},
+            "quality_checks": {"checks": [{"check_id": "QC-01"}]},
+            "training_and_kt": {"training_requirements": [{"training_module": "SOP Walkthrough", "delivery_mode": "Classroom"}]},
+            "prerequisites_and_inputs": {"input_documents_data": [{"frequency": "Daily"}]},
+            "sla_and_performance_targets": [{"kpi": "TAT", "target": "< 1 day"}],
+        },
+        sipoc=[{"supplier": "Vendor", "input": "Invoice", "process_step": "Validate", "output": "Approved Invoice", "customer": "Finance"}],
+    )
+    assert "## Index" in md
+    assert "## 2.6 SIPOC" in md
+    assert "Invoice Validation SOP" in md

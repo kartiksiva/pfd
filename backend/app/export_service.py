@@ -497,7 +497,7 @@ def generate_exports(
 
     md_path.write_text(md_content, encoding="utf-8")
     json_path.write_text(json.dumps({"document_type": document_type, "document": document, "sipoc": sipoc}, indent=2), encoding="utf-8")
-    if document_type == "sop":
+    if document_type in {"sop", "custom_sop"}:
         _render_docx_sop(document, sipoc, docx_path)
     else:
         _render_docx_pdd(document, sipoc, docx_path)

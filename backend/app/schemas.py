@@ -22,6 +22,7 @@ class ProcessingProfile(str, Enum):
 class DocumentTemplate(str, Enum):
     pdd = "pdd"
     sop = "sop"
+    custom_sop = "custom_sop"
 
 
 class JobStatus(str, Enum):

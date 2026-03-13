@@ -145,3 +145,42 @@ def test_sop_finalize_requires_complete_sop_contract(tmp_path: Path):
     finalize = client.post(f"/api/jobs/{job_id}/finalize")
     assert finalize.status_code == 409
     assert finalize.json()["success"] is False
+
+
+def test_custom_sop_uses_custom_template_and_finalize_contract(tmp_path: Path):
+    client = TestClient(app)
+    transcript_path = tmp_path / "custom-sop-flow.txt"
+    transcript_path.write_text("Start\nValidate\nComplete\n", encoding="utf-8")
+    with transcript_path.open("rb") as f:
+        create = client.post(
+            "/api/jobs",
+            files={"transcript_file": ("custom-sop-flow.txt", f, "text/plain")},
+            data={"provider": "google", "processing_profile": "balanced", "document_template": "custom_sop"},
+        )
+    assert create.status_code == 202
+    job_id = create.json()["data"]["job_id"]
+
+    for _ in range(15):
+        job = client.get(f"/api/jobs/{job_id}")
+        state = job.json()["data"]["status"]
+        if state in {"needs_review", "failed", "completed"}:
+            break
+        time.sleep(0.2)
+    assert state == "needs_review"
+
+    draft_response = client.get(f"/api/jobs/{job_id}/draft")
+    assert draft_response.status_code == 200
+    draft = draft_response.json()["data"]
+    assert draft["document_type"] == "custom_sop"
+    assert "## Index" in draft["document_markdown"]
+
+    bad_document = dict(draft["document"])
+    bad_document["quality_checks"] = {}
+    save = client.put(
+        f"/api/jobs/{job_id}/draft",
+        json={"document_type": "custom_sop", "document": bad_document, "sipoc": draft["sipoc"]},
+    )
+    assert save.status_code == 200
+    finalize = client.post(f"/api/jobs/{job_id}/finalize")
+    assert finalize.status_code == 409
+    assert finalize.json()["success"] is False

@@ -315,6 +315,8 @@ def update_draft(job_id: str, payload: dict = Body(...), db: Session = Depends(g
     try:
         if job.document_template == DocumentTemplate.pdd.value:
             PDDDocumentModel(**document)
+        else:
+            SOPDocumentModel(**document)
         [SIPOCRowModel(**row) for row in sipoc]
     except Exception as exc:
         return _error_response(
@@ -358,7 +360,7 @@ def finalize_job(job_id: str, db: Session = Depends(get_db)) -> JSONResponse:
             status_code=409,
         )
     try:
-        if (job.document_template or DocumentTemplate.pdd.value) == DocumentTemplate.sop.value:
+        if (job.document_template or DocumentTemplate.pdd.value) in {DocumentTemplate.sop.value, DocumentTemplate.custom_sop.value}:
             SOPDocumentModel(**job.draft_pdd)
             ok, msg = _validate_sop_complete(job.draft_pdd)
             if not ok:

@@ -73,6 +73,37 @@ def _read_template_text() -> str:
     )
 
 
+def _read_custom_sop_template_text() -> str:
+    candidates = []
+    configured = os.getenv("CUSTOM_SOP_TEMPLATE_PATH", "").strip()
+    if configured:
+        candidates.append(Path(configured))
+    candidates.extend(
+        [
+            Path("/Custom_SOP_Template.md"),
+            Path("../Custom_SOP_Template.md"),
+            Path("Custom_SOP_Template.md"),
+        ]
+    )
+
+    for path in candidates:
+        if path.exists() and path.is_file():
+            return path.read_text(encoding="utf-8")
+
+    return (
+        "# Standard Operating Procedure (SOP) Template\n"
+        "**SOP Format**\n\n"
+        "---\n\n"
+        "## <Process Name>\n\n"
+        "**Function:** <Function Name>\n"
+        "**Sub-Function:** <Sub-function Name>\n"
+        "**Document Version:** <vX.X>\n"
+        "**Document Status:** Draft / Final\n"
+        "**Effective Date:** <DD-MMM-YYYY>\n\n"
+        "---\n"
+    )
+
+
 def _replace_between(text: str, start_heading: str, end_heading: str, replacement_block: str) -> str:
     pattern = re.compile(
         rf"({re.escape(start_heading)}\n)(.*?)(?=\n{re.escape(end_heading)})",
@@ -460,7 +491,119 @@ def render_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
+    template = _read_custom_sop_template_text()
+    steps = document.get("steps", []) if isinstance(document.get("steps"), list) else []
+    doc_control = document.get("document_control", {}) if isinstance(document.get("document_control"), dict) else {}
+    scope = document.get("scope", {}) if isinstance(document.get("scope"), dict) else {}
+    quality = document.get("quality_checks", {}) if isinstance(document.get("quality_checks"), dict) else {}
+    exceptions = document.get("exception_handling", {}) if isinstance(document.get("exception_handling"), dict) else {}
+    controls = document.get("controls_and_compliance", {}) if isinstance(document.get("controls_and_compliance"), dict) else {}
+    training = document.get("training_and_kt", {}) if isinstance(document.get("training_and_kt"), dict) else {}
+    overview = document.get("process_overview", {}) if isinstance(document.get("process_overview"), dict) else {}
+    prerequisites = (
+        document.get("prerequisites_and_inputs", {})
+        if isinstance(document.get("prerequisites_and_inputs"), dict)
+        else {}
+    )
+    roles = document.get("roles_and_responsibilities", []) if isinstance(document.get("roles_and_responsibilities"), list) else []
+    revision_history = document.get("revision_history", []) if isinstance(document.get("revision_history"), list) else []
+    sla_rows = document.get("sla_and_performance_targets", []) if isinstance(document.get("sla_and_performance_targets"), list) else []
+
+    process_name = (
+        str(doc_control.get("sop_title", "")).strip()
+        or (str(steps[0].get("title", "")).strip() if steps else "")
+        or "Standard Operating Procedure"
+    )
+    frequency = "Needs Review"
+    input_docs = prerequisites.get("input_documents_data", []) if isinstance(prerequisites, dict) else []
+    if isinstance(input_docs, list) and input_docs:
+        frequency = str(input_docs[0].get("frequency", "")).strip() or "Needs Review"
+    sla_text = "Needs Review"
+    if sla_rows:
+        first_sla = sla_rows[0]
+        sla_text = f"{first_sla.get('kpi', 'KPI')}: {first_sla.get('target', 'Needs Review')}"
+
+    suppliers = ", ".join(sorted({str(row.get("supplier", "")).strip() for row in sipoc if str(row.get("supplier", "")).strip()})) or "Needs Review"
+    inputs = ", ".join(sorted({str(row.get("input", "")).strip() for row in sipoc if str(row.get("input", "")).strip()})) or "Needs Review"
+    processes = ", ".join([str(step.get("title", "")).strip() for step in steps if str(step.get("title", "")).strip()][:5]) or "Needs Review"
+    outputs = ", ".join(sorted({str(row.get("output", "")).strip() for row in sipoc if str(row.get("output", "")).strip()})) or "Needs Review"
+    customers = ", ".join(sorted({str(row.get("customer", "")).strip() for row in sipoc if str(row.get("customer", "")).strip()})) or "Needs Review"
+
+    primary_role = roles[0] if roles else {}
+    secondary_role = roles[1] if len(roles) > 1 else {}
+    tertiary_role = roles[2] if len(roles) > 2 else {}
+    primary_exc = (exceptions.get("exception_matrix", []) or [{}])[0] if isinstance(exceptions, dict) else {}
+    secondary_exc = (exceptions.get("exception_matrix", []) or [{}, {}])[1] if isinstance(exceptions, dict) and len(exceptions.get("exception_matrix", [])) > 1 else {}
+    primary_control = (controls.get("controls", []) or [{}])[0] if isinstance(controls, dict) else {}
+    secondary_control = (controls.get("controls", []) or [{}, {}])[1] if isinstance(controls, dict) and len(controls.get("controls", [])) > 1 else {}
+    tertiary_control = (controls.get("controls", []) or [{}, {}, {}])[2] if isinstance(controls, dict) and len(controls.get("controls", [])) > 2 else {}
+    training_rows = training.get("training_requirements", []) if isinstance(training, dict) else []
+
+    replacements = {
+        "<Process Name>": process_name,
+        "<Function Name>": str(doc_control.get("department", "Needs Review")),
+        "<Sub-function Name>": str(doc_control.get("process_owner", "Needs Review")),
+        "<vX.X>": str(doc_control.get("version", "1.0")),
+        "<DD-MMM-YYYY>": str(doc_control.get("effective_date", date.today().strftime("%d-%b-%Y"))),
+        "<Brief description of the process>": str(overview.get("flow_summary", document.get("purpose", "Needs Review"))),
+        "<Objective 1>": str(document.get("purpose", "Needs Review")),
+        "<Objective 2>": str((scope.get("in_scope", ["Needs Review"])[0] if isinstance(scope.get("in_scope", []), list) and scope.get("in_scope") else "Needs Review")),
+        "<Objective 3>": "Ensure consistent execution with controls and exception handling.",
+        "<Daily / Weekly / Monthly / Ad-hoc>": frequency,
+        "<Turnaround time / SLA details>": sla_text,
+        "<Supplier>": suppliers,
+        "<Inputs>": inputs,
+        "<High-level steps>": processes,
+        "<Outputs>": outputs,
+        "<Customers>": customers,
+        "<Optional process flow description or diagram reference>": str(overview.get("flow_summary", "Needs Review")),
+        "<Step Name>": str(steps[0].get("title", "Process Step")) if steps else "Process Step",
+        "<Exception 1>": str(primary_exc.get("scenario", "Needs Review")),
+        "<Details>": str(primary_exc.get("trigger_symptom", "Needs Review")),
+        "<Resolution>": str(primary_exc.get("action_to_take", "Needs Review")),
+        "<Role>": str(primary_exc.get("escalation_path", "Needs Review")),
+        "<Exception 2>": str(secondary_exc.get("scenario", "Needs Review")),
+        "<Control Description>": str(primary_control.get("description", "Needs Review")),
+        "<Role 1>": str(primary_role.get("role", "Needs Review")),
+        "<Role 2>": str(secondary_role.get("role", "Needs Review")),
+        "<Role 3>": str(tertiary_role.get("role", "Needs Review")),
+        "<FAQ Topic>": str(training_rows[0].get("training_module", "Needs Review")) if training_rows else "Needs Review",
+        "<Guidance>": str(training_rows[0].get("delivery_mode", "Needs Review")) if training_rows else "Needs Review",
+        "<Task 1>": str(steps[0].get("title", "Task 1")) if steps else "Task 1",
+        "<Task 2>": str(steps[1].get("title", "Task 2")) if len(steps) > 1 else "Task 2",
+        "<Task 3>": str(steps[2].get("title", "Task 3")) if len(steps) > 2 else "Task 3",
+        "<Name>": str(primary_role.get("role", "Needs Review")),
+        "<email@domain>": "needs.review@example.com",
+        "<Step Name>": str(steps[0].get("title", "Process Step")) if steps else "Process Step",
+        "<Control #>": "C1",
+    }
+    replacements.update(
+        {
+            "C1 | <Step Name> | <Control Description> | Manual | Preventive": (
+                f"C1 | {str(steps[0].get('title', 'Process Step')) if steps else 'Process Step'} | "
+                f"{str(primary_control.get('description', 'Needs Review'))} | Manual | Preventive"
+            ),
+            "C2 | <Step Name> | <Control Description> | System | Detective": (
+                f"C2 | {str(steps[1].get('title', 'Process Step')) if len(steps) > 1 else 'Process Step'} | "
+                f"{str(secondary_control.get('description', 'Needs Review'))} | System | Detective"
+            ),
+            "C3 | <Step Name> | <Control Description> | Manual | Detective": (
+                f"C3 | {str(steps[2].get('title', 'Process Step')) if len(steps) > 2 else 'Process Step'} | "
+                f"{str(tertiary_control.get('description', 'Needs Review'))} | Manual | Detective"
+            ),
+        }
+    )
+
+    rendered = template
+    for needle, value in replacements.items():
+        rendered = rendered.replace(needle, str(value))
+    return rendered.strip() + "\n"
+
+
 def render_document_markdown(document: Dict, sipoc: List[Dict], document_type: str) -> str:
+    if document_type == "custom_sop":
+        return render_custom_sop_markdown(document=document, sipoc=sipoc)
     if document_type == "sop":
         return render_sop_markdown(document=document, sipoc=sipoc)
     return render_standard_pdd_markdown(pdd=document, sipoc=sipoc)

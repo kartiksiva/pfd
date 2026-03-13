@@ -137,7 +137,7 @@ def generate_document_from_extraction(
     mapped_steps = _map_step_media(steps, frame_images)
     pdd["steps"] = mapped_steps
 
-    if document_type != "sop":
+    if document_type not in {"sop", "custom_sop"}:
         return pdd
 
     scope_text = str(pdd.get("scope", "Current-state process only."))
