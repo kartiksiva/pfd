@@ -1,8 +1,10 @@
 import time
+from io import BytesIO
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from pypdf import PdfReader
 
 from app.main import app
 
@@ -184,3 +186,36 @@ def test_custom_sop_uses_custom_template_and_finalize_contract(tmp_path: Path):
     finalize = client.post(f"/api/jobs/{job_id}/finalize")
     assert finalize.status_code == 409
     assert finalize.json()["success"] is False
+
+
+def test_custom_sop_pdf_export_contains_custom_template_markers(tmp_path: Path):
+    client = TestClient(app)
+    transcript_path = tmp_path / "custom-sop-export.txt"
+    transcript_path.write_text("Start\nValidate\nComplete\n", encoding="utf-8")
+    with transcript_path.open("rb") as f:
+        create = client.post(
+            "/api/jobs",
+            files={"transcript_file": ("custom-sop-export.txt", f, "text/plain")},
+            data={"provider": "google", "processing_profile": "balanced", "document_template": "custom_sop"},
+        )
+    assert create.status_code == 202
+    job_id = create.json()["data"]["job_id"]
+
+    for _ in range(20):
+        job = client.get(f"/api/jobs/{job_id}")
+        state = job.json()["data"]["status"]
+        if state in {"needs_review", "failed", "completed"}:
+            break
+        time.sleep(0.2)
+    assert state == "needs_review"
+
+    finalize = client.post(f"/api/jobs/{job_id}/finalize")
+    assert finalize.status_code == 202
+
+    pdf = client.get(f"/api/jobs/{job_id}/exports/pdf")
+    assert pdf.status_code == 200
+    extracted = "\n".join((page.extract_text() or "") for page in PdfReader(BytesIO(pdf.content)).pages)
+    assert "Standard Operating Procedure (SOP)" in extracted
+    assert "SOP Template" not in extracted
+    assert "Index" in extracted
+    assert "Notes for AI Usage" not in extracted

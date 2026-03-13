@@ -4,6 +4,256 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, List
 
+TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+
+STANDARD_PDD_TEMPLATE_FALLBACK = """# [Process Name] - Process Definition Document (PDD)
+
+## 1. Document Control
+| Version | Date | Author | Description |
+| :--- | :--- | :--- | :--- |
+| 1.0 | 2026-03-05 | [Author Name] | Initial Draft (As-Is Process) |
+
+## 2. Process Overview
+*   **Process Name:** [e.g., Invoice Validation]
+*   **Objective:** [Short description of why the process exists]
+*   **Frequency:** [e.g., Daily / On-demand]
+*   **Estimated Volume:** [e.g., 50 cases/day]
+*   **Manual Effort:** [e.g., 15 mins per case]
+
+## 3. Scope
+### 3.1 In-Scope
+*   [e.g., Processing PDF invoices from the 'AP_Inbox']
+*   [e.g., Data entry into SAP FICO module]
+
+### 3.2 Out-of-Scope
+*   [e.g., Physical paper invoices]
+*   [e.g., Handling tax disputes (requires Human-in-the-Loop)]
+
+## 4. Prerequisites & Systems
+### 4.1 Prerequisites
+*   [e.g., Access to Shared Drive]
+*   [e.g., Active SAP User Profile]
+
+### 4.2 Application Inventory
+| Application | Version | Access Method |
+| :--- | :--- | :--- |
+| SAP S/4HANA | v2023 | Desktop Client |
+| Microsoft Outlook | Office 365 | Web/Desktop |
+| Internal Portal | v1.2 | Chrome/Edge |
+
+---
+
+## 5. Detailed Process Steps (As-Is)
+*This is the core of the document. Use a table for structured steps and nested lists for complex logic.*
+
+| Step # | Action | Role | System | Input | Output |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 1.1 | Open Outlook and navigate to 'Invoices' folder. | Operator | Outlook | Email | Invoice PDF |
+| 1.2 | Download the attachment to the 'Pending' directory. | Operator | File Explorer | PDF | File on Local Path |
+| 1.3 | Open Internal Portal and upload the PDF for OCR. | Operator | Web Portal | File | Extracted Data |
+| 1.4 | Compare Extracted Data with SAP Records. | Analyst | SAP | Data | Validation Result |
+
+### Step 1.4 Details (Sub-steps)
+1.  Log into **SAP** using credentials.
+2.  Enter Transaction Code **FB60**.
+3.  **If** Invoice Number exists:
+    *   Proceed to Step 1.5.
+4.  **Else** (Invoice missing):
+    *   Route to "Business Exception - Missing PO".
+
+---
+
+## 6. Business Rules & Logic
+*Define the 'brains' of the process.*
+*   **Rule 1:** Only process invoices where the Total Amount is > $0.
+*   **Rule 2:** Invoices from "Vendor X" must be routed to the Priority Queue.
+
+## 7. Exceptions Handling
+### 7.1 Business Exceptions
+*   **Scenario:** Duplicate Invoice Number.
+*   **Action:** Move to 'Duplicates' folder and notify requester via email.
+
+### 7.2 Technical Exceptions
+*   **Scenario:** SAP System Down.
+*   **Action:** Wait 15 minutes and retry; if persistent, alert IT Support.
+
+## 8. Inputs & Outputs
+*   **Primary Input:** PDF Document via Email.
+*   **Primary Output:** Verified Record in SAP; Confirmation Email.
+
+## 9. Metrics & Risks
+*   **Success Metric:** Accuracy Rate > 98%.
+*   **Risk:** Poor OCR quality on handwritten invoices.
+*   **Mitigation:** Human-in-the-loop review for confidence scores < 85%.
+
+---
+**Document generated for Process Excellence / Automation Readiness.**
+"""
+
+CUSTOM_SOP_TEMPLATE_FALLBACK = """# Standard Operating Procedure (SOP) Template
+**SOP Format**
+
+---
+
+## <Process Name>
+
+**Function:** <Function Name>
+**Sub-Function:** <Sub-function Name>
+**Document Version:** <vX.X>
+**Document Status:** Draft / Final
+**Effective Date:** <DD-MMM-YYYY>
+
+---
+
+## 1. Document Control
+
+### 1.1 Key Stakeholders
+
+| # | Name | Position / Designation | Email ID |
+|---|------|------------------------|----------|
+| 1 | <Name> | <Role> | <email@domain> |
+| 2 | <Name> | <Role> | <email@domain> |
+| 3 | <Name> | <Role> | <email@domain> |
+
+---
+
+### 1.2 Version History
+
+| Version | Date | Status (Draft/Final) | Author | Reviewed By | Comments / Changes |
+|---------|------|----------------------|--------|-------------|-------------------|
+| 0.1 | <DD-MMM-YYYY> | Draft | <Name> | <Name> | Initial draft |
+| 1.0 | <DD-MMM-YYYY> | Final | <Name> | <Name> | Approved version |
+
+---
+
+## Index
+
+1. Document Control
+2. Introduction
+3. Process Steps
+4. Process Exceptions
+5. Process Controls
+6. Approval Matrix
+7. Appendix
+
+---
+
+## 2. Introduction
+
+### 2.1 Process Overview
+<Brief description of the process>
+
+---
+
+### 2.2 Process Objective
+- <Objective 1>
+- <Objective 2>
+- <Objective 3>
+
+---
+
+### 2.3 Frequency
+<Daily / Weekly / Monthly / Ad-hoc>
+
+---
+
+### 2.4 SLA
+- <Turnaround time / SLA details>
+
+---
+
+### 2.5 RACI
+
+| Task / Stakeholders | Role 1 | Role 2 | Role 3 |
+|---------------------|--------|--------|--------|
+| <Task 1> | R | I | A |
+| <Task 2> | I | R | A |
+| <Task 3> | C | R | I |
+
+---
+
+### 2.6 SIPOC
+
+**Supplier**
+- <Supplier>
+
+**Input**
+- <Inputs>
+
+**Process**
+- <High-level steps>
+
+**Output**
+- <Outputs>
+
+**Customer**
+- <Customers>
+
+---
+
+### 2.7 High Level Process Flow
+<Optional process flow description or diagram reference>
+
+---
+
+## 3. Process Steps
+
+### Step 1: <Step Name>
+- Description
+- Tools / Systems
+- Inputs
+
+### Step 2: <Step Name>
+- Description
+- Validation / Checks
+- Outputs
+
+*(Add more steps as required)*
+
+---
+
+## 4. Process Exceptions
+
+| Exception Scenario | Description | Action Required | Owner |
+|--------------------|-------------|-----------------|-------|
+| <Exception 1> | <Details> | <Resolution> | <Role> |
+| <Exception 2> | <Details> | <Resolution> | <Role> |
+
+---
+
+## 5. Process Controls
+
+| Control # | Process Step | Control Description | Manual / System | Preventive / Detective |
+|-----------|-------------|---------------------|-----------------|------------------------|
+| C1 | <Step Name> | <Control Description> | Manual | Preventive |
+| C2 | <Step Name> | <Control Description> | System | Detective |
+| C3 | <Step Name> | <Control Description> | Manual | Detective |
+
+---
+
+## 6. Approval Matrix
+
+| Role | Responsibility |
+|------|----------------|
+| <Role 1> | Review |
+| <Role 2> | Approval |
+| <Role 3> | Final Sign-off |
+
+---
+
+## 7. Appendix
+
+### Frequently Asked Questions (FAQs)
+
+| # | Topic | Top Tips |
+|---|-------|----------|
+| 1 | <FAQ Topic> | <Guidance> |
+| 2 | <FAQ Topic> | <Guidance> |
+| 3 | <FAQ Topic> | <Guidance> |
+
+---
+"""
+
 
 def _as_list(value) -> list[str]:
     if isinstance(value, list):
@@ -21,56 +271,18 @@ def _split_exceptions(exceptions: list[str]) -> tuple[list[str], list[str]]:
 
 
 def _read_template_text() -> str:
-    # Precedence: explicit env var, then common local/container paths.
+    # Precedence: explicit env var, bundled template path.
     candidates = []
     configured = os.getenv("PDD_TEMPLATE_PATH", "").strip()
     if configured:
         candidates.append(Path(configured))
-    candidates.extend(
-        [
-            Path("/STANDARD_PDD_TEMPLATE.md"),
-            Path("../STANDARD_PDD_TEMPLATE.md"),
-            Path("STANDARD_PDD_TEMPLATE.md"),
-        ]
-    )
+    candidates.append(TEMPLATES_DIR / "STANDARD_PDD_TEMPLATE.md")
 
     for path in candidates:
         if path.exists() and path.is_file():
             return path.read_text(encoding="utf-8")
 
-    # Minimal fallback keeps generation functional even if template is missing.
-    return (
-        "# [Process Name] - Process Definition Document (PDD)\n\n"
-        "## 1. Document Control\n"
-        "| Version | Date | Author | Description |\n"
-        "| :--- | :--- | :--- | :--- |\n"
-        "| 1.0 | 2026-03-05 | [Author Name] | Initial Draft (As-Is Process) |\n\n"
-        "## 2. Process Overview\n"
-        "*   **Process Name:** [e.g., Invoice Validation]\n"
-        "*   **Objective:** [Short description of why the process exists]\n"
-        "*   **Frequency:** [e.g., Daily / On-demand]\n"
-        "*   **Estimated Volume:** [e.g., 50 cases/day]\n"
-        "*   **Manual Effort:** [e.g., 15 mins per case]\n\n"
-        "## 3. Scope\n"
-        "### 3.1 In-Scope\n*   [e.g., Scope item]\n\n"
-        "### 3.2 Out-of-Scope\n*   [e.g., Out-of-scope item]\n\n"
-        "## 4. Prerequisites & Systems\n"
-        "### 4.1 Prerequisites\n*   [e.g., prerequisite]\n\n"
-        "### 4.2 Application Inventory\n"
-        "| Application | Version | Access Method |\n"
-        "| :--- | :--- | :--- |\n"
-        "| Unspecified | Unknown | Unknown |\n\n"
-        "---\n\n"
-        "## 5. Detailed Process Steps (As-Is)\n"
-        "| Step # | Action | Role | System | Input | Output |\n"
-        "| :--- | :--- | :--- | :--- | :--- | :--- |\n"
-        "| 1.1 | Step details unavailable | Unspecified | Unspecified | Unspecified | Unspecified |\n\n"
-        "## 6. Business Rules & Logic\n*   No explicit rules identified.\n\n"
-        "## 7. Exceptions Handling\n### 7.1 Business Exceptions\n*   None captured.\n\n### 7.2 Technical Exceptions\n*   None captured.\n\n"
-        "## 8. Inputs & Outputs\n*   **Primary Input:** Unspecified\n*   **Primary Output:** Unspecified\n\n"
-        "## 9. Metrics & Risks\n*   **Success Metric:** Not explicitly defined.\n*   **Risk:** No explicit risks identified.\n\n"
-        "---\n**Document generated for Process Excellence / Automation Readiness.**\n"
-    )
+    return STANDARD_PDD_TEMPLATE_FALLBACK
 
 
 def _read_custom_sop_template_text() -> str:
@@ -78,30 +290,13 @@ def _read_custom_sop_template_text() -> str:
     configured = os.getenv("CUSTOM_SOP_TEMPLATE_PATH", "").strip()
     if configured:
         candidates.append(Path(configured))
-    candidates.extend(
-        [
-            Path("/Custom_SOP_Template.md"),
-            Path("../Custom_SOP_Template.md"),
-            Path("Custom_SOP_Template.md"),
-        ]
-    )
+    candidates.append(TEMPLATES_DIR / "Custom_SOP_Template.md")
 
     for path in candidates:
         if path.exists() and path.is_file():
             return path.read_text(encoding="utf-8")
 
-    return (
-        "# Standard Operating Procedure (SOP) Template\n"
-        "**SOP Format**\n\n"
-        "---\n\n"
-        "## <Process Name>\n\n"
-        "**Function:** <Function Name>\n"
-        "**Sub-Function:** <Sub-function Name>\n"
-        "**Document Version:** <vX.X>\n"
-        "**Document Status:** Draft / Final\n"
-        "**Effective Date:** <DD-MMM-YYYY>\n\n"
-        "---\n"
-    )
+    return CUSTOM_SOP_TEMPLATE_FALLBACK
 
 
 def _replace_between(text: str, start_heading: str, end_heading: str, replacement_block: str) -> str:
@@ -496,7 +691,6 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
     steps = document.get("steps", []) if isinstance(document.get("steps"), list) else []
     doc_control = document.get("document_control", {}) if isinstance(document.get("document_control"), dict) else {}
     scope = document.get("scope", {}) if isinstance(document.get("scope"), dict) else {}
-    quality = document.get("quality_checks", {}) if isinstance(document.get("quality_checks"), dict) else {}
     exceptions = document.get("exception_handling", {}) if isinstance(document.get("exception_handling"), dict) else {}
     controls = document.get("controls_and_compliance", {}) if isinstance(document.get("controls_and_compliance"), dict) else {}
     training = document.get("training_and_kt", {}) if isinstance(document.get("training_and_kt"), dict) else {}
@@ -506,6 +700,7 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
         if isinstance(document.get("prerequisites_and_inputs"), dict)
         else {}
     )
+    tools = document.get("tools_and_systems_reference", []) if isinstance(document.get("tools_and_systems_reference"), list) else []
     roles = document.get("roles_and_responsibilities", []) if isinstance(document.get("roles_and_responsibilities"), list) else []
     revision_history = document.get("revision_history", []) if isinstance(document.get("revision_history"), list) else []
     sla_rows = document.get("sla_and_performance_targets", []) if isinstance(document.get("sla_and_performance_targets"), list) else []
@@ -515,6 +710,30 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
         or (str(steps[0].get("title", "")).strip() if steps else "")
         or "Standard Operating Procedure"
     )
+    process_owner = str(doc_control.get("process_owner", "")).strip()
+    if not process_owner or process_owner.lower() == "needs review":
+        process_owner = (
+            str(roles[0].get("role", "")).strip()
+            if roles and isinstance(roles[0], dict)
+            else (str(steps[0].get("actor", "")).strip() if steps else "")
+        ) or "Needs Review"
+    function_name = str(doc_control.get("department", "")).strip()
+    if not function_name or function_name.lower() == "needs review":
+        function_name = (
+            str(tools[0].get("tool_system", "")).strip()
+            if tools and isinstance(tools[0], dict)
+            else ""
+        ) or (
+            str((prerequisites.get("system_access_required", [{}])[0] or {}).get("system", "")).strip()
+            if isinstance(prerequisites, dict) and prerequisites.get("system_access_required")
+            else ""
+        ) or (
+            str(steps[0].get("system", "")).strip()
+            if steps else ""
+        ) or "Needs Review"
+    effective_date_value = str(doc_control.get("effective_date", "")).strip()
+    effective_date = effective_date_value if effective_date_value and effective_date_value.lower() != "needs review" else date.today().strftime("%d-%b-%Y")
+    document_status = str(doc_control.get("status", "")).strip() or "Draft"
     frequency = "Needs Review"
     input_docs = prerequisites.get("input_documents_data", []) if isinstance(prerequisites, dict) else []
     if isinstance(input_docs, list) and input_docs:
@@ -540,12 +759,19 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
     tertiary_control = (controls.get("controls", []) or [{}, {}, {}])[2] if isinstance(controls, dict) and len(controls.get("controls", [])) > 2 else {}
     training_rows = training.get("training_requirements", []) if isinstance(training, dict) else []
 
+    role_labels = [
+        str(primary_role.get("role", "Needs Review")),
+        str(secondary_role.get("role", "Needs Review")),
+        str(tertiary_role.get("role", "Needs Review")),
+    ]
+    owner_default = str(doc_control.get("process_owner", "Needs Review"))
+
     replacements = {
         "<Process Name>": process_name,
-        "<Function Name>": str(doc_control.get("department", "Needs Review")),
-        "<Sub-function Name>": str(doc_control.get("process_owner", "Needs Review")),
+        "<Function Name>": function_name,
+        "<Sub-function Name>": process_owner,
         "<vX.X>": str(doc_control.get("version", "1.0")),
-        "<DD-MMM-YYYY>": str(doc_control.get("effective_date", date.today().strftime("%d-%b-%Y"))),
+        "<DD-MMM-YYYY>": effective_date,
         "<Brief description of the process>": str(overview.get("flow_summary", document.get("purpose", "Needs Review"))),
         "<Objective 1>": str(document.get("purpose", "Needs Review")),
         "<Objective 2>": str((scope.get("in_scope", ["Needs Review"])[0] if isinstance(scope.get("in_scope", []), list) and scope.get("in_scope") else "Needs Review")),
@@ -573,9 +799,8 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
         "<Task 1>": str(steps[0].get("title", "Task 1")) if steps else "Task 1",
         "<Task 2>": str(steps[1].get("title", "Task 2")) if len(steps) > 1 else "Task 2",
         "<Task 3>": str(steps[2].get("title", "Task 3")) if len(steps) > 2 else "Task 3",
-        "<Name>": str(primary_role.get("role", "Needs Review")),
+        "<Name>": owner_default,
         "<email@domain>": "needs.review@example.com",
-        "<Step Name>": str(steps[0].get("title", "Process Step")) if steps else "Process Step",
         "<Control #>": "C1",
     }
     replacements.update(
@@ -596,8 +821,168 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
     )
 
     rendered = template
+    # Custom SOP output should be production-ready, not template-labeled.
+    rendered = rendered.replace("# Standard Operating Procedure (SOP) Template", "# Standard Operating Procedure (SOP)")
+    rendered = rendered.replace("**SOP Format**", "")
+    rendered = rendered.replace("Draft / Final", document_status)
     for needle, value in replacements.items():
         rendered = rendered.replace(needle, str(value))
+
+    stakeholders_rows = [
+        f"| {idx} | {row.get('role', owner_default)} | {row.get('responsibility', 'Needs Review')} | needs.review@example.com |"
+        for idx, row in enumerate(roles[:3], start=1)
+    ] or [
+        f"| 1 | {owner_default} | Process Owner | needs.review@example.com |",
+        "| 2 | Needs Review | Reviewer | needs.review@example.com |",
+        "| 3 | Needs Review | Approver | needs.review@example.com |",
+    ]
+    stakeholders_block = "\n".join(
+        [
+            "| # | Name | Position / Designation | Email ID |",
+            "|---|------|------------------------|----------|",
+            *stakeholders_rows,
+        ]
+    )
+    rendered = _replace_between(rendered, "### 1.1 Key Stakeholders", "---", stakeholders_block)
+
+    version_rows = [
+        "| {version} | {date} | {status} | {author} | {approved_by} | {change_summary} |".format(
+            version=row.get("version", "1.0"),
+            date=row.get("date", effective_date),
+            status=row.get("status", "Draft"),
+            author=row.get("author", "PFCD Agent"),
+            approved_by=row.get("approved_by", "Needs Review"),
+            change_summary=row.get("change_summary", "Update"),
+        )
+        for row in revision_history[:3]
+    ] or [
+        f"| 1.0 | {effective_date} | {document_status} | PFCD Agent | Needs Review | Initial draft |"
+    ]
+    version_block = "\n".join(
+        [
+            "| Version | Date | Status (Draft/Final) | Author | Reviewed By | Comments / Changes |",
+            "|---------|------|----------------------|--------|-------------|-------------------|",
+            *version_rows,
+        ]
+    )
+    rendered = _replace_between(rendered, "### 1.2 Version History", "---", version_block)
+
+    raci_rows = []
+    for idx in range(3):
+        task = str(steps[idx].get("title", f"Task {idx + 1}")) if idx < len(steps) else f"Task {idx + 1}"
+        raci = ["R", "I", "A"] if idx == 0 else ["I", "R", "A"] if idx == 1 else ["C", "R", "I"]
+        raci_rows.append(f"| {task} | {raci[0]} | {raci[1]} | {raci[2]} |")
+    raci_block = "\n".join(
+        [
+            "| Task / Stakeholders | Role 1 | Role 2 | Role 3 |",
+            "|---------------------|--------|--------|--------|",
+            *raci_rows,
+        ]
+    )
+    rendered = _replace_between(rendered, "### 2.5 RACI", "---", raci_block)
+    rendered = rendered.replace("Role 1", role_labels[0])
+    rendered = rendered.replace("Role 2", role_labels[1])
+    rendered = rendered.replace("Role 3", role_labels[2])
+
+    process_steps_lines = ["## 3. Process Steps", ""]
+    if steps:
+        for idx, step in enumerate(steps, start=1):
+            screenshot = step.get("screenshot") if isinstance(step.get("screenshot"), dict) else {}
+            screenshot_path = str(screenshot.get("path", "")).strip()
+            process_steps_lines.extend(
+                [
+                    f"### Step {idx}: {step.get('title', f'Step {idx}')}",
+                    f"- Description: {step.get('description', 'Needs Review')}",
+                    f"- Tools / Systems: {step.get('system', 'Needs Review')}",
+                    f"- Inputs: {step.get('input', 'Needs Review')}",
+                    f"- Outputs: {step.get('output', 'Needs Review')}",
+                    f"- Source Timestamp: {step.get('source_timestamp', 'Needs Review')}",
+                ]
+            )
+            if screenshot_path:
+                process_steps_lines.append(f"![Step {idx} Screenshot]({screenshot_path})")
+                if screenshot.get("reason"):
+                    process_steps_lines.append(f"- Frame Reason: {screenshot.get('reason')}")
+            else:
+                process_steps_lines.append("- Screenshot: Not available")
+            process_steps_lines.append("")
+    else:
+        process_steps_lines.extend(
+            [
+                "### Step 1: Needs Review",
+                "- Description: Needs Review",
+                "- Tools / Systems: Needs Review",
+                "- Inputs: Needs Review",
+                "- Outputs: Needs Review",
+                "- Source Timestamp: Needs Review",
+                "- Screenshot: Not available",
+            ]
+        )
+    rendered = _replace_between(rendered, "## 3. Process Steps", "## 4. Process Exceptions", "\n".join(process_steps_lines))
+
+    exception_rows = [
+        "| {scenario} | {trigger} | {action} | {owner} |".format(
+            scenario=row.get("scenario", "Needs Review"),
+            trigger=row.get("trigger_symptom", "Needs Review"),
+            action=row.get("action_to_take", "Needs Review"),
+            owner=row.get("escalation_path", "Needs Review"),
+        )
+        for row in (exceptions.get("exception_matrix", []) if isinstance(exceptions, dict) else [])[:6]
+    ] or ["| Needs Review | Needs Review | Needs Review | Needs Review |"]
+    exception_block = "\n".join(
+        [
+            "| Exception Scenario | Description | Action Required | Owner |",
+            "|--------------------|-------------|-----------------|-------|",
+            *exception_rows,
+        ]
+    )
+    rendered = _replace_between(rendered, "## 4. Process Exceptions", "## 5. Process Controls", exception_block)
+
+    controls_rows = [
+        "| C{idx} | {step_name} | {desc} | {ctype} | Detective |".format(
+            idx=idx + 1,
+            step_name=(steps[idx].get("title", f"Step {idx + 1}") if idx < len(steps) else f"Step {idx + 1}"),
+            desc=str(ctrl.get("description", "Needs Review")),
+            ctype=("System" if "system" in str(ctrl.get("type", "")).lower() else "Manual"),
+        )
+        for idx, ctrl in enumerate((controls.get("controls", []) if isinstance(controls, dict) else [])[:3])
+    ] or ["| C1 | Step 1 | Needs Review | Manual | Detective |"]
+    controls_block = "\n".join(
+        [
+            "| Control # | Process Step | Control Description | Manual / System | Preventive / Detective |",
+            "|-----------|-------------|---------------------|-----------------|------------------------|",
+            *controls_rows,
+        ]
+    )
+    rendered = _replace_between(rendered, "## 5. Process Controls", "## 6. Approval Matrix", controls_block)
+
+    approval_rows = [
+        f"| {role_labels[0]} | Review |",
+        f"| {role_labels[1]} | Approval |",
+        f"| {role_labels[2]} | Final Sign-off |",
+    ]
+    approval_block = "\n".join(["| Role | Responsibility |", "|------|----------------|", *approval_rows])
+    rendered = _replace_between(rendered, "## 6. Approval Matrix", "## 7. Appendix", approval_block)
+
+    faq_rows = [
+        "| {idx} | {topic} | {tip} |".format(
+            idx=idx + 1,
+            topic=row.get("training_module", "Needs Review"),
+            tip=row.get("delivery_mode", "Needs Review"),
+        )
+        for idx, row in enumerate(training_rows[:3])
+    ] or [
+        "| 1 | Process overview | Needs Review |",
+        "| 2 | Exception handling | Needs Review |",
+        "| 3 | Controls checklist | Needs Review |",
+    ]
+    faq_block = "\n".join(["| # | Topic | Top Tips |", "|---|-------|----------|", *faq_rows])
+    rendered = _replace_between(rendered, "### Frequently Asked Questions (FAQs)", "---", faq_block)
+
+    # Remove template-authoring notes from final user-facing output.
+    rendered = re.sub(r"\n\*\*Notes for AI Usage\*\*[\s\S]*$", "", rendered, flags=re.MULTILINE)
+    # Safety net: avoid leaking unresolved placeholder tokens.
+    rendered = re.sub(r"<[^>\n]+>", "Needs Review", rendered)
     return rendered.strip() + "\n"
 
 

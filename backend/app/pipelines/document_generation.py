@@ -1,4 +1,5 @@
 from typing import Dict, List, Optional
+from datetime import date
 
 
 PDD_SECTION_ORDER = [
@@ -141,13 +142,23 @@ def generate_document_from_extraction(
         return pdd
 
     scope_text = str(pdd.get("scope", "Current-state process only."))
+    inferred_owner = (
+        (pdd.get("roles", [None])[0] if isinstance(pdd.get("roles"), list) and pdd.get("roles") else None)
+        or (mapped_steps[0].get("actor") if mapped_steps else None)
+        or "Needs Review"
+    )
+    inferred_department = (
+        extraction.get("department")
+        or (pdd.get("systems", [None])[0] if isinstance(pdd.get("systems"), list) and pdd.get("systems") else None)
+        or "Needs Review"
+    )
     sop = {
         "document_control": {
             "sop_id": "SOP-OPS-001-" + str(pdd.get("purpose", "") or "YYYY")[:4],
             "sop_title": mapped_steps[0].get("title", "Standard Operating Procedure") if mapped_steps else "Standard Operating Procedure",
-            "process_owner": "Needs Review",
-            "department": "Needs Review",
-            "effective_date": "Needs Review",
+            "process_owner": inferred_owner,
+            "department": inferred_department,
+            "effective_date": date.today().strftime("%d-%b-%Y"),
             "review_date": "Needs Review",
             "version": "1.0",
             "classification": "Internal",

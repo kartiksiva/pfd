@@ -9,7 +9,6 @@ services:
       - "8000:8000"
     volumes:
       - ../backend:/app
-      - ../STANDARD_PDD_TEMPLATE.md:/STANDARD_PDD_TEMPLATE.md:ro
       - ../data/uploads:/app/uploads
       - ../data/exports:/app/exports
 

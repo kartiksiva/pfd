@@ -150,3 +150,8 @@ def test_render_custom_sop_markdown_uses_root_template(monkeypatch):
     assert "## Index" in md
     assert "## 2.6 SIPOC" in md
     assert "Invoice Validation SOP" in md
+    assert "# Standard Operating Procedure (SOP)" in md
+    assert "SOP Template" not in md
+    assert "**SOP Format**" not in md
+    assert "**Notes for AI Usage**" not in md
+    assert "<Process Name>" not in md

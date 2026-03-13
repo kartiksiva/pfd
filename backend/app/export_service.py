@@ -1,5 +1,7 @@
 import json
+import re
 import tempfile
+from io import BytesIO
 from html import escape
 from datetime import date
 from datetime import datetime
@@ -7,11 +9,13 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from docx import Document
-from docx.shared import Inches
+from docx.enum.style import WD_STYLE_TYPE
+from docx.shared import Inches, Pt
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.platypus import Image as RLImage
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from app.pdd_template import render_document_markdown
 
@@ -45,20 +49,41 @@ def _render_pdf_from_docx(docx_path: Path, target_path: Path) -> None:
         if block.tag.endswith("}p"):
             paragraph = next((p for p in doc.paragraphs if p._element is block), None)
             text = (paragraph.text if paragraph else "").strip()
-            if not text:
+            image_blobs = []
+            if paragraph:
+                for run in paragraph.runs:
+                    for blip in run._element.xpath(".//*[local-name()='blip']"):
+                        rid = blip.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed")
+                        if rid and rid in doc.part.related_parts:
+                            image_blobs.append(doc.part.related_parts[rid].blob)
+
+            if not text and not image_blobs:
                 story.append(Spacer(1, 2))
                 continue
             style_name = str(getattr(paragraph.style, "name", "") or "")
-            if style_name.startswith("Heading 1"):
-                story.append(Paragraph(escape(text), heading_1))
-            elif style_name.startswith("Heading 2"):
-                story.append(Paragraph(escape(text), heading_2))
-            elif style_name.startswith("Heading 3"):
-                story.append(Paragraph(escape(text), heading_3))
-            elif "List Bullet" in style_name:
-                story.append(Paragraph(escape(text), bullet, bulletText="•"))
-            else:
-                story.append(Paragraph(escape(text), body))
+            if text:
+                if style_name.startswith("Heading 1"):
+                    story.append(Paragraph(escape(text), heading_1))
+                elif style_name.startswith("Heading 2"):
+                    story.append(Paragraph(escape(text), heading_2))
+                elif style_name.startswith("Heading 3"):
+                    story.append(Paragraph(escape(text), heading_3))
+                elif "List Bullet" in style_name:
+                    story.append(Paragraph(escape(text), bullet, bulletText="•"))
+                else:
+                    story.append(Paragraph(escape(text), body))
+            max_width = A4[0] - (24 * mm)
+            for blob in image_blobs:
+                try:
+                    image = RLImage(BytesIO(blob))
+                    if float(image.drawWidth) > max_width and float(image.drawWidth) > 0:
+                        scale = max_width / float(image.drawWidth)
+                        image.drawWidth = max_width
+                        image.drawHeight = float(image.drawHeight) * scale
+                    story.append(image)
+                    story.append(Spacer(1, 6))
+                except Exception:
+                    continue
             continue
 
         if block.tag.endswith("}tbl"):
@@ -141,6 +166,122 @@ def _add_table(doc: Document, headers: List[str], rows: List[List[str]]) -> None
         cells = table.add_row().cells
         for idx, value in enumerate(row):
             cells[idx].text = value
+
+
+def _strip_markdown_inline(text: str) -> str:
+    return text.replace("**", "").replace("__", "").strip()
+
+
+def _is_markdown_alignment_row(cells: List[str]) -> bool:
+    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell.strip()) for cell in cells if cell.strip())
+
+
+def _parse_markdown_table_row(line: str) -> List[str]:
+    stripped = line.strip().strip("|")
+    return [cell.strip() for cell in stripped.split("|")]
+
+
+def _resolve_markdown_image_path(raw_path: str) -> Optional[Path]:
+    candidate = Path(raw_path.strip())
+    if candidate.exists():
+        return candidate
+
+    normalized = raw_path.strip()
+    mappings = [
+        ("/app/uploads/", "uploads/"),
+        ("/app/uploads/", "data/uploads/"),
+    ]
+    for old, new in mappings:
+        if normalized.startswith(old):
+            remapped = Path(normalized.replace(old, new, 1))
+            if remapped.exists():
+                return remapped
+            remapped_parent = Path("..") / remapped
+            if remapped_parent.exists():
+                return remapped_parent
+    return None
+
+
+def _render_docx_from_markdown(markdown: str, target_path: Path) -> None:
+    doc = Document()
+    compact_meta_style = doc.styles.add_style("Compact Meta", WD_STYLE_TYPE.PARAGRAPH)
+    compact_meta_style.paragraph_format.space_before = Pt(0)
+    compact_meta_style.paragraph_format.space_after = Pt(0)
+    compact_meta_style.paragraph_format.line_spacing = 1.0
+    meta_prefixes = (
+        "**Function:**",
+        "**Sub-Function:**",
+        "**Document Version:**",
+        "**Document Status:**",
+        "**Effective Date:**",
+    )
+    lines = markdown.splitlines()
+    i = 0
+    while i < len(lines):
+        raw = lines[i]
+        line = raw.rstrip()
+        stripped = line.strip()
+
+        if not stripped:
+            i += 1
+            continue
+
+        if stripped.startswith("|"):
+            block = []
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                block.append(lines[i].strip())
+                i += 1
+            parsed = [_parse_markdown_table_row(row) for row in block]
+            parsed = [row for row in parsed if row and not _is_markdown_alignment_row(row)]
+            if parsed:
+                headers = [_strip_markdown_inline(cell) for cell in parsed[0]]
+                rows = [[_strip_markdown_inline(cell) for cell in row] for row in parsed[1:]]
+                _add_table(doc, headers, rows)
+            continue
+
+        if stripped.startswith("#"):
+            level = min(len(stripped) - len(stripped.lstrip("#")), 6)
+            text = _strip_markdown_inline(stripped[level:].strip())
+            if text:
+                paragraph = doc.add_heading(text, level=level)
+                paragraph.paragraph_format.space_before = Pt(6)
+                paragraph.paragraph_format.space_after = Pt(2)
+            i += 1
+            continue
+
+        image_match = re.search(r"!\[(.*?)\]\(([^)]+)\)", stripped)
+        if image_match:
+            alt_text = image_match.group(1).strip() or "Image"
+            image_path = _resolve_markdown_image_path(image_match.group(2).strip())
+            if image_path and _safe_add_picture(doc, image_path, width=5.8):
+                caption = doc.add_paragraph(alt_text)
+                caption.paragraph_format.space_before = Pt(0)
+                caption.paragraph_format.space_after = Pt(2)
+            else:
+                missing = doc.add_paragraph(f"{alt_text}: image not available")
+                missing.paragraph_format.space_after = Pt(2)
+            i += 1
+            continue
+
+        if stripped.startswith(("- ", "* ")):
+            doc.add_paragraph(_strip_markdown_inline(stripped[2:].strip()), style="List Bullet")
+            i += 1
+            continue
+
+        if stripped == "---":
+            i += 1
+            continue
+
+        clean = _strip_markdown_inline(stripped)
+        if any(stripped.startswith(prefix) for prefix in meta_prefixes):
+            paragraph = doc.add_paragraph(clean, style=compact_meta_style)
+            paragraph.paragraph_format.space_after = Pt(0)
+        else:
+            paragraph = doc.add_paragraph(clean)
+            paragraph.paragraph_format.space_after = Pt(2)
+        i += 1
+
+    doc.save(str(target_path))
 
 
 def _render_docx_pdd(pdd: Dict, sipoc: List[Dict], target_path: Path) -> None:
@@ -497,7 +638,9 @@ def generate_exports(
 
     md_path.write_text(md_content, encoding="utf-8")
     json_path.write_text(json.dumps({"document_type": document_type, "document": document, "sipoc": sipoc}, indent=2), encoding="utf-8")
-    if document_type in {"sop", "custom_sop"}:
+    if document_type == "custom_sop":
+        _render_docx_from_markdown(md_content, docx_path)
+    elif document_type == "sop":
         _render_docx_sop(document, sipoc, docx_path)
     else:
         _render_docx_pdd(document, sipoc, docx_path)
