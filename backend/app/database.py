@@ -28,6 +28,7 @@ def ensure_schema_compat() -> None:
         return
     _sqlite_add_column_if_missing("jobs", "context_notes", "TEXT")
     _sqlite_add_column_if_missing("jobs", "process_name", "TEXT")
+    _sqlite_add_column_if_missing("jobs", "document_template", "TEXT DEFAULT 'pdd'")
     _sqlite_add_column_if_missing("jobs", "model_plan", "JSON")
     _sqlite_add_column_if_missing("jobs", "limits_applied", "JSON")
     _sqlite_add_column_if_missing("jobs", "usage_cost_estimate", "JSON")

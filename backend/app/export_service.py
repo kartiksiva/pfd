@@ -1,4 +1,5 @@
 import json
+import tempfile
 from html import escape
 from datetime import date
 from datetime import datetime
@@ -6,16 +7,17 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from docx import Document
+from docx.shared import Inches
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from app.pdd_template import render_standard_pdd_markdown
+from app.pdd_template import render_document_markdown
 
 
-def _render_markdown(pdd: Dict, sipoc: List[Dict]) -> str:
-    return render_standard_pdd_markdown(pdd=pdd, sipoc=sipoc)
+def _render_markdown(document: Dict, sipoc: List[Dict], document_type: str) -> str:
+    return render_document_markdown(document=document, sipoc=sipoc, document_type=document_type)
 
 
 def _render_pdf_from_docx(docx_path: Path, target_path: Path) -> None:
@@ -105,6 +107,31 @@ def _add_labeled_bullet(doc: Document, label: str, value: str) -> None:
     p.add_run(value)
 
 
+def _safe_add_picture(doc: Document, image_path: Path, width: float = 5.8) -> bool:
+    try:
+        doc.add_picture(str(image_path), width=Inches(width))
+        return True
+    except Exception:
+        try:
+            from PIL import Image
+
+            with Image.open(image_path) as img:
+                normalized = img.convert("RGB")
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    tmp_path = Path(tmp.name)
+                try:
+                    normalized.save(tmp_path, format="PNG")
+                    doc.add_picture(str(tmp_path), width=Inches(width))
+                    return True
+                finally:
+                    try:
+                        tmp_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+        except Exception:
+            return False
+
+
 def _add_table(doc: Document, headers: List[str], rows: List[List[str]]) -> None:
     table = doc.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
@@ -116,7 +143,7 @@ def _add_table(doc: Document, headers: List[str], rows: List[List[str]]) -> None
             cells[idx].text = value
 
 
-def _render_docx(pdd: Dict, sipoc: List[Dict], target_path: Path) -> None:
+def _render_docx_pdd(pdd: Dict, sipoc: List[Dict], target_path: Path) -> None:
     doc = Document()
     steps = pdd.get("steps", []) if isinstance(pdd.get("steps"), list) else []
     systems = pdd.get("systems", []) if isinstance(pdd.get("systems"), list) else []
@@ -185,6 +212,23 @@ def _render_docx(pdd: Dict, sipoc: List[Dict], target_path: Path) -> None:
         ]
         or [["1.1", "Step details unavailable", "Unspecified", "Unspecified", "Unspecified", "Unspecified"]],
     )
+    doc.add_heading("Step Screenshots", level=3)
+    for step in steps:
+        step_no = str(step.get("step_no", ""))
+        step_title = str(step.get("title", "") or step.get("description", "") or f"Step {step_no}")
+        doc.add_paragraph(f"Step {step_no}: {step_title}")
+        if step.get("source_timestamp"):
+            doc.add_paragraph(f"Source Timestamp: {step.get('source_timestamp')}", style="List Bullet")
+        screenshot = step.get("screenshot") if isinstance(step.get("screenshot"), dict) else {}
+        screenshot_path = Path(str(screenshot.get("path", "")).strip()) if screenshot else None
+        if screenshot_path and screenshot_path.exists():
+            if _safe_add_picture(doc, screenshot_path, width=5.8):
+                if screenshot.get("reason"):
+                    doc.add_paragraph(f"Frame Reason: {screenshot.get('reason')}", style="List Bullet")
+            else:
+                doc.add_paragraph("Screenshot: File exists but could not be parsed as an image.", style="List Bullet")
+        else:
+            doc.add_paragraph("Screenshot: Not available", style="List Bullet")
 
     doc.add_heading("6. Business Rules & Logic", level=2)
     if business_rules:
@@ -241,6 +285,168 @@ def _render_docx(pdd: Dict, sipoc: List[Dict], target_path: Path) -> None:
     doc.save(str(target_path))
 
 
+def _render_docx_sop(document: Dict, sipoc: List[Dict], target_path: Path) -> None:
+    doc = Document()
+    steps = document.get("steps", []) if isinstance(document.get("steps"), list) else []
+    doc_control = document.get("document_control", {}) if isinstance(document.get("document_control"), dict) else {}
+    scope = document.get("scope", {}) if isinstance(document.get("scope"), dict) else {}
+    quality = document.get("quality_checks", {}) if isinstance(document.get("quality_checks"), dict) else {}
+    exceptions = document.get("exception_handling", {}) if isinstance(document.get("exception_handling"), dict) else {}
+    controls = document.get("controls_and_compliance", {}) if isinstance(document.get("controls_and_compliance"), dict) else {}
+    training = document.get("training_and_kt", {}) if isinstance(document.get("training_and_kt"), dict) else {}
+
+    doc.add_heading("Standard Operating Procedure (SOP)", level=1)
+    doc.add_heading("Document Control", level=2)
+    _add_table(
+        doc,
+        ["Field", "Details"],
+        [
+            ["SOP ID", str(doc_control.get("sop_id", "Needs Review"))],
+            ["SOP Title", str(doc_control.get("sop_title", "Needs Review"))],
+            ["Process Owner", str(doc_control.get("process_owner", "Needs Review"))],
+            ["Department / BU", str(doc_control.get("department", "Needs Review"))],
+            ["Effective Date", str(doc_control.get("effective_date", "Needs Review"))],
+            ["Review Date", str(doc_control.get("review_date", "Needs Review"))],
+            ["Version", str(doc_control.get("version", "1.0"))],
+            ["Classification", str(doc_control.get("classification", "Internal"))],
+        ],
+    )
+    doc.add_heading("1. Purpose", level=2)
+    doc.add_paragraph(str(document.get("purpose", "Needs Review")))
+
+    doc.add_heading("2. Scope", level=2)
+    doc.add_heading("2.1 In-Scope", level=3)
+    for item in scope.get("in_scope", []) if isinstance(scope.get("in_scope"), list) else ["Needs Review"]:
+        doc.add_paragraph(str(item), style="List Bullet")
+    doc.add_heading("2.2 Out-of-Scope", level=3)
+    for item in scope.get("out_of_scope", []) if isinstance(scope.get("out_of_scope"), list) else ["Needs Review"]:
+        doc.add_paragraph(str(item), style="List Bullet")
+
+    doc.add_heading("3. Roles & Responsibilities", level=2)
+    _add_table(
+        doc,
+        ["Role", "Responsibility", "Team / Location"],
+        [
+            [str(r.get("role", "")), str(r.get("responsibility", "")), str(r.get("team_location", ""))]
+            for r in (document.get("roles_and_responsibilities", []) or [])
+        ]
+        or [["Operator", "Execute process steps", "Needs Review"]],
+    )
+
+    doc.add_heading("7. Detailed Process Steps", level=2)
+    for idx, step in enumerate(steps, start=1):
+        doc.add_heading(f"Step {idx} - {step.get('title', f'Step {idx}')}", level=3)
+        _add_labeled_bullet(doc, "Performed By: ", str(step.get("actor", "operator")))
+        _add_labeled_bullet(doc, "System Used: ", str(step.get("system", "manual_or_unspecified")))
+        _add_labeled_bullet(doc, "Source Timestamp: ", str(step.get("source_timestamp", "Needs Review")))
+        _add_labeled_bullet(doc, "Action: ", str(step.get("description", "")))
+        _add_labeled_bullet(doc, "Expected Result: ", str(step.get("output", "")))
+        screenshot = step.get("screenshot") if isinstance(step.get("screenshot"), dict) else {}
+        screenshot_path = Path(str(screenshot.get("path", "")).strip()) if screenshot else None
+        if screenshot_path and screenshot_path.exists():
+            if _safe_add_picture(doc, screenshot_path, width=5.8):
+                if screenshot.get("reason"):
+                    _add_labeled_bullet(doc, "Frame Reason: ", str(screenshot.get("reason", "")))
+            else:
+                doc.add_paragraph("Screenshot: File exists but could not be parsed as an image.", style="List Bullet")
+        else:
+            doc.add_paragraph("Screenshot: Not available", style="List Bullet")
+
+    doc.add_heading("8. Quality Checks & Validation", level=2)
+    _add_table(
+        doc,
+        ["Check #", "What to Validate", "How to Validate", "Done By", "Frequency"],
+        [
+            [
+                str(c.get("check_id", "")),
+                str(c.get("what_to_validate", "")),
+                str(c.get("how_to_validate", "")),
+                str(c.get("done_by", "")),
+                str(c.get("frequency", "")),
+            ]
+            for c in (quality.get("checks", []) or [])
+        ]
+        or [["QC-01", "Needs Review", "Needs Review", "Needs Review", "Needs Review"]],
+    )
+
+    doc.add_heading("9. Exception Handling", level=2)
+    _add_table(
+        doc,
+        ["Exception ID", "Scenario", "Trigger / Symptom", "Action to Take", "Escalation Path"],
+        [
+            [
+                str(e.get("exception_id", "")),
+                str(e.get("scenario", "")),
+                str(e.get("trigger_symptom", "")),
+                str(e.get("action_to_take", "")),
+                str(e.get("escalation_path", "")),
+            ]
+            for e in (exceptions.get("exception_matrix", []) or [])
+        ]
+        or [["EXC-01", "Needs Review", "Needs Review", "Needs Review", "Needs Review"]],
+    )
+
+    doc.add_heading("10. SLA & Performance Targets", level=2)
+    _add_table(
+        doc,
+        ["KPI", "Definition", "Target", "Measurement Method"],
+        [
+            [
+                str(k.get("kpi", "")),
+                str(k.get("definition", "")),
+                str(k.get("target", "")),
+                str(k.get("measurement_method", "")),
+            ]
+            for k in (document.get("sla_and_performance_targets", []) or [])
+        ]
+        or [["Accuracy Rate", "Needs Review", "Needs Review", "Needs Review"]],
+    )
+
+    doc.add_heading("13. Controls & Compliance", level=2)
+    _add_table(
+        doc,
+        ["Control", "Type", "Description", "Evidence Required"],
+        [
+            [str(c.get("control", "")), str(c.get("type", "")), str(c.get("description", "")), str(c.get("evidence_required", ""))]
+            for c in (controls.get("controls", []) or [])
+        ]
+        or [["Needs Review", "Needs Review", "Needs Review", "Needs Review"]],
+    )
+    doc.add_heading("12. Training & Knowledge Transfer", level=2)
+    _add_table(
+        doc,
+        ["Training Module", "Delivery Mode", "Duration", "Frequency"],
+        [
+            [
+                str(t.get("training_module", "")),
+                str(t.get("delivery_mode", "")),
+                str(t.get("duration", "")),
+                str(t.get("frequency", "")),
+            ]
+            for t in (training.get("training_requirements", []) or [])
+        ]
+        or [["Needs Review", "Needs Review", "Needs Review", "Needs Review"]],
+    )
+
+    doc.add_heading("SIPOC", level=2)
+    _add_table(
+        doc,
+        ["Supplier", "Input", "Process", "Output", "Customer"],
+        [
+            [
+                str(row.get("supplier", "")),
+                str(row.get("input", "")),
+                str(row.get("process_step", "")),
+                str(row.get("output", "")),
+                str(row.get("customer", "")),
+            ]
+            for row in sipoc
+        ]
+        or [["upstream_supplier", "process input", "unspecified", "unspecified", "downstream_customer"]],
+    )
+    doc.save(str(target_path))
+
+
 def _safe_name_token(raw: str) -> str:
     chars = []
     for ch in (raw or "").strip().lower():
@@ -265,31 +471,41 @@ def _resolve_process_name(pdd: Dict, provided_name: Optional[str]) -> str:
 
 def generate_exports(
     job_id: str,
-    pdd: Dict,
+    document: Dict,
     sipoc: List[Dict],
     exports_root: Path,
+    document_type: str = "pdd",
     process_name: Optional[str] = None,
     llm_provider: Optional[str] = None,
     processed_at: Optional[datetime] = None,
 ) -> Dict:
     job_dir = exports_root / job_id
-    job_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir = job_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     processed_at = processed_at or datetime.utcnow()
-    process_token = _safe_name_token(_resolve_process_name(pdd, process_name))
+    process_token = _safe_name_token(_resolve_process_name(document, process_name))
     provider_token = _safe_name_token(llm_provider or "provider")
     date_token = processed_at.strftime("%Y%m%d")
     base_name = f"{process_token}_processed_{date_token}_{provider_token}"
 
-    md_content = _render_markdown(pdd, sipoc)
-    md_path = job_dir / f"{base_name}.md"
-    json_path = job_dir / f"{base_name}.json"
-    pdf_path = job_dir / f"{base_name}.pdf"
-    docx_path = job_dir / f"{base_name}.docx"
+    md_content = _render_markdown(document, sipoc, document_type)
+    md_path = artifacts_dir / f"{base_name}.md"
+    json_path = artifacts_dir / f"{base_name}.json"
+    pdf_path = artifacts_dir / f"{base_name}.pdf"
+    docx_path = artifacts_dir / f"{base_name}.docx"
 
     md_path.write_text(md_content, encoding="utf-8")
-    json_path.write_text(json.dumps({"pdd": pdd, "sipoc": sipoc}, indent=2), encoding="utf-8")
-    _render_docx(pdd, sipoc, docx_path)
+    json_path.write_text(json.dumps({"document_type": document_type, "document": document, "sipoc": sipoc}, indent=2), encoding="utf-8")
+    if document_type == "sop":
+        _render_docx_sop(document, sipoc, docx_path)
+    else:
+        _render_docx_pdd(document, sipoc, docx_path)
     _render_pdf_from_docx(docx_path, pdf_path)
 
-    return {"md": str(md_path), "json": str(json_path), "pdf": str(pdf_path), "docx": str(docx_path)}
+    return {
+        "md": str(md_path.resolve()),
+        "json": str(json_path.resolve()),
+        "pdf": str(pdf_path.resolve()),
+        "docx": str(docx_path.resolve()),
+    }

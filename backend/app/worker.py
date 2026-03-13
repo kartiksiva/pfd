@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.pipelines.document_generation import generate_pdd_document, generate_sipoc_rows
+from app.pipelines.document_generation import generate_document_from_extraction, generate_sipoc_rows
 from app.pipelines.media_understanding import build_media_understanding_payload
 from app.pipelines.process_extraction import extract_process_structure
 from app.pipelines.quality_checks import run_quality_checks
@@ -16,7 +16,7 @@ from app.schemas import JobStatus
 def _fallback_provider(primary: str) -> str:
     if primary == "google":
         return "openai"
-    if primary == "openai":
+    if primary in {"openai", "azure_openai"}:
         return "google"
     return "google"
 
@@ -117,6 +117,7 @@ def process_job_async(job_id: str) -> None:
             "provider": result.evidence.provider,
             "transcript_text": result.evidence.transcript_text,
             "visual_events": result.evidence.visual_events,
+            "frame_images": getattr(result.evidence, "frame_images", []),
             "process_candidates": result.evidence.process_candidates,
             "confidence": result.evidence.confidence,
             "structured_extraction": result.evidence.structured_extraction,
@@ -181,9 +182,19 @@ def process_job_async(job_id: str) -> None:
             _set_failure(db, job_id, "ERR_JOB_TIMEOUT", "Job exceeded max processing duration.")
             return
 
-        pdd = generate_pdd_document(extraction)
+        document_type = str(getattr(job, "document_template", "pdd") or "pdd")
+        document = generate_document_from_extraction(
+            extraction,
+            document_type=document_type,
+            frame_images=media_payload.get("frame_images", []),
+        )
         sipoc = generate_sipoc_rows(extraction)
-        review_notes = run_quality_checks(pdd=pdd, sipoc=sipoc, confidence=extraction.get("confidence", 0.0))
+        review_notes = run_quality_checks(
+            pdd=document,
+            sipoc=sipoc,
+            confidence=extraction.get("confidence", 0.0),
+            document_type=document_type,
+        )
         if fallback_used:
             review_notes.setdefault("flags", []).append(
                 {
@@ -202,7 +213,7 @@ def process_job_async(job_id: str) -> None:
         update_job_metadata(
             db,
             job,
-            draft_pdd=pdd,
+            draft_pdd=document,
             draft_sipoc=sipoc,
             review_notes=review_notes,
             progress={

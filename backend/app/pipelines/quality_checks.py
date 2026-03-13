@@ -3,19 +3,25 @@ from typing import Dict, List
 from app.pipelines.document_generation import PDD_SECTION_ORDER
 
 
-def run_quality_checks(pdd: Dict, sipoc: List[Dict], confidence: float) -> Dict:
+def run_quality_checks(pdd: Dict, sipoc: List[Dict], confidence: float, document_type: str = "pdd") -> Dict:
     flags = []
     assumptions = []
 
-    missing_sections = [key for key in PDD_SECTION_ORDER if key not in pdd]
-    if missing_sections:
-        flags.append(
-            {
-                "type": "missing_sections",
-                "path": "pdd",
-                "message": f"Missing PDD sections: {', '.join(missing_sections)}",
-            }
-        )
+    if document_type == "pdd":
+        missing_sections = [key for key in PDD_SECTION_ORDER if key not in pdd]
+        if missing_sections:
+            flags.append(
+                {
+                    "type": "missing_sections",
+                    "path": "pdd",
+                    "message": f"Missing PDD sections: {', '.join(missing_sections)}",
+                }
+            )
+    else:
+        if not pdd.get("document_control"):
+            flags.append({"type": "missing_sections", "path": "sop.document_control", "message": "Missing SOP document control section."})
+        if not pdd.get("quality_checks"):
+            flags.append({"type": "missing_sections", "path": "sop.quality_checks", "message": "Missing SOP quality checks section."})
 
     if not pdd.get("steps"):
         flags.append({"type": "missing_steps", "path": "pdd.steps", "message": "No process steps found."})
@@ -36,4 +42,3 @@ def run_quality_checks(pdd: Dict, sipoc: List[Dict], confidence: float) -> Dict:
     penalty = min(len(flags) * 0.12, 0.72)
     quality_score = max(round(confidence - penalty, 2), 0.05)
     return {"quality_score": quality_score, "flags": flags, "assumptions": assumptions}
-

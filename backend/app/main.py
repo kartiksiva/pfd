@@ -13,14 +13,24 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import Base, engine, ensure_schema_compat, get_db
 from app.export_service import generate_exports
-from app.pdd_template import render_standard_pdd_markdown
+from app.pdd_template import render_document_markdown
 from app.provider_health import check_providers_health
 from app.retention import run_retention_sweep_once, start_retention_scheduler
 from app.repository import create_job as repo_create_job
 from app.repository import get_job as repo_get_job
 from app.repository import list_jobs as repo_list_jobs
 from app.repository import update_job_metadata, update_job_status
-from app.schemas import ApiEnvelope, JobCreateResponseData, JobStatus, PDDDocumentModel, ProcessingProfile, Provider, SIPOCRowModel
+from app.schemas import (
+    ApiEnvelope,
+    DocumentTemplate,
+    JobCreateResponseData,
+    JobStatus,
+    PDDDocumentModel,
+    ProcessingProfile,
+    Provider,
+    SIPOCRowModel,
+    SOPDocumentModel,
+)
 from app.upload_validation import ValidationError, validate_and_persist_inputs
 from app.worker import process_job_async
 
@@ -57,6 +67,21 @@ def _success_response(data: dict, status_code: int = 200) -> JSONResponse:
 def _error_response(code: str, message: str, details: Optional[dict] = None, status_code: int = 400) -> JSONResponse:
     payload = ApiEnvelope(success=False, data=None, error={"code": code, "message": message, "details": details or {}})
     return JSONResponse(status_code=status_code, content=payload.model_dump(mode="json"))
+
+
+def _validate_sop_complete(document: dict) -> tuple[bool, str]:
+    required_non_empty = [
+        ("purpose", document.get("purpose")),
+        ("steps", document.get("steps")),
+        ("document_control", document.get("document_control")),
+        ("quality_checks", document.get("quality_checks")),
+        ("exception_handling", document.get("exception_handling")),
+        ("controls_and_compliance", document.get("controls_and_compliance")),
+    ]
+    for key, value in required_non_empty:
+        if value in (None, "", [], {}):
+            return False, f"Missing required SOP field: {key}"
+    return True, "ok"
 
 
 @app.exception_handler(RequestValidationError)
@@ -112,6 +137,7 @@ async def create_job(
     background_tasks: BackgroundTasks,
     provider: Provider = Form(default=Provider.google.value),
     processing_profile: ProcessingProfile = Form(default=ProcessingProfile.balanced.value),
+    document_template: DocumentTemplate = Form(default=DocumentTemplate.pdd.value),
     process_name: Optional[str] = Form(default=None, max_length=255),
     context_notes: Optional[str] = Form(default=None, max_length=2000),
     video_file: Optional[UploadFile] = File(default=None),
@@ -144,6 +170,7 @@ async def create_job(
         job_id=job_id,
         provider=provider.value,
         processing_profile=processing_profile.value,
+        document_template=document_template.value,
         process_name=process_name,
         context_notes=context_notes,
         input_manifest=input_manifest,
@@ -156,6 +183,7 @@ async def create_job(
         status=JobStatus(job.status),
         provider=Provider(job.provider),
         processing_profile=ProcessingProfile(job.processing_profile),
+        document_template=DocumentTemplate((job.document_template or DocumentTemplate.pdd.value)),
         created_at=job.created_at,
     )
     background_tasks.add_task(process_job_async, job.id)
@@ -178,6 +206,7 @@ def list_jobs(
                     "provider": row.provider,
                     "processing_profile": row.processing_profile,
                     "process_name": row.process_name,
+                    "document_template": row.document_template or DocumentTemplate.pdd.value,
                     "created_at": row.created_at,
                     "updated_at": row.updated_at,
                     "expires_at": row.expires_at,
@@ -210,6 +239,7 @@ def get_job(job_id: str, db: Session = Depends(get_db)) -> JSONResponse:
             "provider": job.provider,
             "processing_profile": job.processing_profile,
             "process_name": job.process_name,
+            "document_template": job.document_template or DocumentTemplate.pdd.value,
             "model_plan": job.model_plan,
             "input_manifest": job.input_manifest,
             "limits_applied": job.limits_applied,
@@ -239,10 +269,16 @@ def get_draft(job_id: str, db: Session = Depends(get_db)) -> JSONResponse:
         data={
             "job_id": job.id,
             "provider": job.provider,
+            "document_template": job.document_template or DocumentTemplate.pdd.value,
             "model_plan": job.model_plan,
-            "pdd": job.draft_pdd,
+            "document_type": job.document_template or DocumentTemplate.pdd.value,
+            "document": job.draft_pdd,
             "sipoc": job.draft_sipoc,
-            "pdd_markdown": render_standard_pdd_markdown(job.draft_pdd, job.draft_sipoc),
+            "document_markdown": render_document_markdown(
+                job.draft_pdd,
+                job.draft_sipoc,
+                job.document_template or DocumentTemplate.pdd.value,
+            ),
             "review_notes": job.review_notes,
             "updated_at": job.updated_at,
         }
@@ -260,16 +296,25 @@ def update_draft(job_id: str, payload: dict = Body(...), db: Session = Depends(g
             status_code=404,
         )
 
-    pdd = payload.get("pdd")
+    document_type = payload.get("document_type") or job.document_template or DocumentTemplate.pdd.value
+    document = payload.get("document")
     sipoc = payload.get("sipoc")
-    if not isinstance(pdd, dict) or not isinstance(sipoc, list):
+    if not isinstance(document, dict) or not isinstance(sipoc, list):
         return _error_response(
             code="ERR_INVALID_DRAFT_PAYLOAD",
-            message="Draft payload must include pdd object and sipoc array.",
+            message="Draft payload must include document object and sipoc array.",
+            status_code=400,
+        )
+    if str(document_type) != str(job.document_template or DocumentTemplate.pdd.value):
+        return _error_response(
+            code="ERR_INVALID_DRAFT_PAYLOAD",
+            message="document_type must match job document_template.",
+            details={"job_document_template": (job.document_template or DocumentTemplate.pdd.value), "document_type": document_type},
             status_code=400,
         )
     try:
-        PDDDocumentModel(**pdd)
+        if job.document_template == DocumentTemplate.pdd.value:
+            PDDDocumentModel(**document)
         [SIPOCRowModel(**row) for row in sipoc]
     except Exception as exc:
         return _error_response(
@@ -279,7 +324,7 @@ def update_draft(job_id: str, payload: dict = Body(...), db: Session = Depends(g
             status_code=400,
         )
 
-    job = update_job_metadata(db, job, draft_pdd=pdd, draft_sipoc=sipoc)
+    job = update_job_metadata(db, job, draft_pdd=document, draft_sipoc=sipoc)
     return _success_response(data={"job_id": job_id, "saved": True, "updated_at": job.updated_at})
 
 
@@ -312,6 +357,27 @@ def finalize_job(job_id: str, db: Session = Depends(get_db)) -> JSONResponse:
             details={"job_id": job_id},
             status_code=409,
         )
+    try:
+        if (job.document_template or DocumentTemplate.pdd.value) == DocumentTemplate.sop.value:
+            SOPDocumentModel(**job.draft_pdd)
+            ok, msg = _validate_sop_complete(job.draft_pdd)
+            if not ok:
+                return _error_response(
+                    code="ERR_NOT_FINALIZED",
+                    message=msg,
+                    details={"job_id": job_id, "document_template": job.document_template or DocumentTemplate.pdd.value},
+                    status_code=409,
+                )
+        else:
+            PDDDocumentModel(**job.draft_pdd)
+        [SIPOCRowModel(**row) for row in job.draft_sipoc]
+    except Exception as exc:
+        return _error_response(
+            code="ERR_NOT_FINALIZED",
+            message="Draft does not satisfy required schema for finalization.",
+            details={"reason": str(exc), "document_template": job.document_template or DocumentTemplate.pdd.value},
+            status_code=409,
+        )
 
     ok, msg = update_job_status(db, job, JobStatus.processing.value)
     if not ok:
@@ -325,9 +391,10 @@ def finalize_job(job_id: str, db: Session = Depends(get_db)) -> JSONResponse:
         processed_at = datetime.utcnow()
         artifacts = generate_exports(
             job_id=job.id,
-            pdd=job.draft_pdd,
+            document=job.draft_pdd,
             sipoc=job.draft_sipoc,
             exports_root=exports_root,
+            document_type=job.document_template or DocumentTemplate.pdd.value,
             process_name=job.process_name,
             llm_provider=(job.model_plan or {}).get("provider", job.provider),
             processed_at=processed_at,
@@ -340,11 +407,12 @@ def finalize_job(job_id: str, db: Session = Depends(get_db)) -> JSONResponse:
             progress={"stage": "export_generation", "percent": 100},
         )
     except Exception as exc:
+        err_text = str(exc).strip() or f"{exc.__class__.__name__}: {repr(exc)}"
         update_job_metadata(
             db,
             job,
             error_code="ERR_EXPORT_GENERATION_FAILED",
-            error_message=str(exc)[:2000],
+            error_message=err_text[:2000],
         )
         update_job_status(db, job, JobStatus.failed.value)
         return _error_response(

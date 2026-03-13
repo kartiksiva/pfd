@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 class Provider(str, Enum):
     openai = "openai"
+    azure_openai = "azure_openai"
     google = "google"
     ollama = "ollama"
 
@@ -16,6 +17,11 @@ class ProcessingProfile(str, Enum):
     quality = "quality"
     balanced = "balanced"
     low_cost = "low_cost"
+
+
+class DocumentTemplate(str, Enum):
+    pdd = "pdd"
+    sop = "sop"
 
 
 class JobStatus(str, Enum):
@@ -44,6 +50,7 @@ class JobCreateResponseData(BaseModel):
     status: JobStatus = JobStatus.queued
     provider: Provider
     processing_profile: ProcessingProfile
+    document_template: DocumentTemplate = DocumentTemplate.pdd
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -68,3 +75,22 @@ class PDDDocumentModel(BaseModel):
     outputs: list[str]
     metrics: list[str]
     risks: list[str]
+
+
+class SOPDocumentModel(BaseModel):
+    document_control: dict[str, Any]
+    revision_history: list[dict[str, Any]]
+    purpose: str
+    scope: dict[str, Any]
+    roles_and_responsibilities: list[dict[str, Any]]
+    definitions: list[dict[str, Any]]
+    prerequisites_and_inputs: dict[str, Any]
+    process_overview: dict[str, Any]
+    steps: list[dict[str, Any]]
+    quality_checks: dict[str, Any]
+    exception_handling: dict[str, Any]
+    sla_and_performance_targets: list[dict[str, Any]]
+    tools_and_systems_reference: list[dict[str, Any]]
+    training_and_kt: dict[str, Any]
+    controls_and_compliance: dict[str, Any]
+    related_documents: list[dict[str, Any]]

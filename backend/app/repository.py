@@ -28,6 +28,7 @@ def create_job(
     job_id: Optional[str] = None,
     provider: str,
     processing_profile: str,
+    document_template: str,
     process_name: Optional[str],
     context_notes: Optional[str],
     input_manifest: dict,
@@ -35,11 +36,17 @@ def create_job(
     retention_days: int = 7,
 ) -> JobRecord:
     now = datetime.utcnow()
-    fallback_provider = "openai" if provider == "google" else "google"
+    if provider == "google":
+        fallback_provider = "openai"
+    elif provider in {"openai", "azure_openai", "ollama"}:
+        fallback_provider = "google"
+    else:
+        fallback_provider = "google"
     payload = {
         "status": JobStatus.queued.value,
         "provider": provider,
         "processing_profile": processing_profile,
+        "document_template": document_template,
         "process_name": process_name,
         "context_notes": context_notes,
         "model_plan": {

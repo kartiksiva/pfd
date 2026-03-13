@@ -6,12 +6,14 @@ import Link from "next/link";
 const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 const defaultProvider = process.env.NEXT_PUBLIC_DEFAULT_PROVIDER ?? "google";
 const defaultProfile = process.env.NEXT_PUBLIC_DEFAULT_PROCESSING_PROFILE ?? "balanced";
+const defaultTemplate = process.env.NEXT_PUBLIC_DEFAULT_DOCUMENT_TEMPLATE ?? "pdd";
 
 type JobStatus = "queued" | "processing" | "needs_review" | "completed" | "failed" | "expired";
 
 export default function HomePage() {
   const [provider, setProvider] = useState(defaultProvider);
   const [profile, setProfile] = useState(defaultProfile);
+  const [documentTemplate, setDocumentTemplate] = useState(defaultTemplate);
   const [processName, setProcessName] = useState("");
   const [contextNotes, setContextNotes] = useState("");
   const [transcriptFile, setTranscriptFile] = useState<File | null>(null);
@@ -53,6 +55,7 @@ export default function HomePage() {
     const fd = new FormData();
     fd.append("provider", provider);
     fd.append("processing_profile", profile);
+    fd.append("document_template", documentTemplate);
     if (processName.trim()) fd.append("process_name", processName.trim());
     if (contextNotes) fd.append("context_notes", contextNotes);
     if (transcriptFile) fd.append("transcript_file", transcriptFile);
@@ -90,8 +93,18 @@ export default function HomePage() {
       const res = await fetch(`${apiBase}/api/jobs/${id}/draft`);
       const payload = await toJsonSafe(res);
       if (res.ok && payload?.success) {
-        setDraftJson(JSON.stringify({ pdd: payload.data.pdd, sipoc: payload.data.sipoc }, null, 2));
-        setDraftMarkdown(payload.data.pdd_markdown ?? "");
+        setDraftJson(
+          JSON.stringify(
+            {
+              document_type: payload.data.document_type ?? payload.data.document_template ?? "pdd",
+              document: payload.data.document ?? {},
+              sipoc: payload.data.sipoc ?? []
+            },
+            null,
+            2
+          )
+        );
+        setDraftMarkdown(payload.data.document_markdown ?? "");
       }
     } catch {
       setError(`Cannot reach API at ${apiBase}.`);
@@ -180,6 +193,7 @@ export default function HomePage() {
             <select value={provider} onChange={(e) => setProvider(e.target.value)}>
               <option value="google">google</option>
               <option value="openai">openai</option>
+              <option value="azure_openai">azure_openai</option>
               <option value="ollama">ollama</option>
             </select>
           </div>
@@ -191,6 +205,13 @@ export default function HomePage() {
               <option value="low_cost">low_cost</option>
             </select>
             <p className="muted">`quality` may process full media and incur higher cost. Prefer transcript upload from team recordings.</p>
+          </div>
+          <div>
+            <label>Document Template</label>
+            <select value={documentTemplate} onChange={(e) => setDocumentTemplate(e.target.value)}>
+              <option value="pdd">pdd</option>
+              <option value="sop">sop</option>
+            </select>
           </div>
         </div>
         <div className="row">
@@ -242,6 +263,7 @@ export default function HomePage() {
         <p className="muted">Stage: {job?.progress?.stage || "-"}</p>
         <p className="muted">Requested Provider: {requestedProvider}</p>
         <p className="muted">Executed Provider: {executedProvider}</p>
+        <p className="muted">Document Template: {job?.document_template ?? "-"}</p>
         <p className="muted">Media Mode: {mediaMode}</p>
         {mediaModeNote ? <p className="muted">Media Note: {mediaModeNote}</p> : null}
         <p className="muted">Fallback Used: {fallbackUsed ? "yes" : "no"}</p>
@@ -257,7 +279,7 @@ export default function HomePage() {
       </section>
 
       <section className="card">
-        <h2>Template Draft (STANDARD_PDD_TEMPLATE)</h2>
+        <h2>Template Draft</h2>
         <textarea rows={18} value={draftMarkdown} readOnly />
       </section>
 

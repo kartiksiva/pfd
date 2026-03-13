@@ -41,15 +41,20 @@ def test_end_to_end_job_review_finalize_export_flow(tmp_path: Path):
     draft = client.get(f"/api/jobs/{job_id}/draft")
     assert draft.status_code == 200
     draft_payload = draft.json()["data"]
-    assert isinstance(draft_payload["pdd"], dict)
+    assert draft_payload["document_type"] == "pdd"
+    assert isinstance(draft_payload["document"], dict)
     assert isinstance(draft_payload["sipoc"], list)
-    assert isinstance(draft_payload["pdd_markdown"], str)
-    assert "## 1. Document Control" in draft_payload["pdd_markdown"]
+    assert isinstance(draft_payload["document_markdown"], str)
+    assert "## 1. Document Control" in draft_payload["document_markdown"]
 
     # Save same draft back (schema validation path).
     save = client.put(
         f"/api/jobs/{job_id}/draft",
-        json={"pdd": draft_payload["pdd"], "sipoc": draft_payload["sipoc"]},
+        json={
+            "document_type": draft_payload["document_type"],
+            "document": draft_payload["document"],
+            "sipoc": draft_payload["sipoc"],
+        },
     )
     assert save.status_code == 200
     assert save.json()["success"] is True
@@ -103,3 +108,40 @@ def test_list_jobs_endpoint_returns_recent_jobs(tmp_path: Path):
     jobs = payload["data"]["jobs"]
     assert isinstance(jobs, list)
     assert any(row["id"] == job_id for row in jobs)
+
+
+def test_sop_finalize_requires_complete_sop_contract(tmp_path: Path):
+    client = TestClient(app)
+    transcript_path = tmp_path / "sop-flow.txt"
+    transcript_path.write_text("Start\nValidate\nComplete\n", encoding="utf-8")
+    with transcript_path.open("rb") as f:
+        create = client.post(
+            "/api/jobs",
+            files={"transcript_file": ("sop-flow.txt", f, "text/plain")},
+            data={"provider": "google", "processing_profile": "balanced", "document_template": "sop"},
+        )
+    assert create.status_code == 202
+    job_id = create.json()["data"]["job_id"]
+
+    for _ in range(15):
+        job = client.get(f"/api/jobs/{job_id}")
+        state = job.json()["data"]["status"]
+        if state in {"needs_review", "failed", "completed"}:
+            break
+        time.sleep(0.2)
+    assert state == "needs_review"
+
+    draft = client.get(f"/api/jobs/{job_id}/draft").json()["data"]
+    assert draft["document_type"] == "sop"
+
+    # Remove required SOP section to force finalize validation failure.
+    bad_document = dict(draft["document"])
+    bad_document["quality_checks"] = {}
+    save = client.put(
+        f"/api/jobs/{job_id}/draft",
+        json={"document_type": "sop", "document": bad_document, "sipoc": draft["sipoc"]},
+    )
+    assert save.status_code == 200
+    finalize = client.post(f"/api/jobs/{job_id}/finalize")
+    assert finalize.status_code == 409
+    assert finalize.json()["success"] is False

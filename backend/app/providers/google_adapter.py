@@ -85,6 +85,7 @@ class GoogleAdapter(ProviderAdapter):
             visual_events=visual_events,
             process_candidates=candidates,
             confidence=float(structured.get("confidence", 0.78)) if structured else (0.72 if candidates else 0.0),
+            frame_images=frame_images,
             structured_extraction=structured,
         )
 

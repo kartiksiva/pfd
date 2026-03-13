@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 
@@ -9,6 +9,7 @@ class EvidencePayload:
     visual_events: List[Dict]
     process_candidates: List[Dict]
     confidence: float
+    frame_images: List[Dict] = field(default_factory=list)
     structured_extraction: Optional[Dict] = None
 
 
