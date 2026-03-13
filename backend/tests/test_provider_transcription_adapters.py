@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from app.config import get_settings
+from app.providers.azure_openai_adapter import AzureOpenAIAdapter
 from app.providers.google_adapter import GoogleAdapter
 from app.providers.openai_adapter import OpenAIAdapter
 
@@ -61,3 +63,81 @@ def test_openai_adapter_uses_media_transcriber(monkeypatch, tmp_path: Path):
     )
     assert called["ok"] is True
     assert text == "openai media transcript"
+
+
+def test_azure_openai_adapter_uses_media_transcriber(monkeypatch, tmp_path: Path):
+    called = {"ok": False}
+
+    def fake_transcribe(*, input_manifest, api_key, endpoint, deployment, api_version, mode):
+        called["ok"] = True
+        assert input_manifest["audio"]["storage_key"].endswith("call.wav")
+        assert deployment == "transcribe-deployment"
+        assert endpoint == "https://example.openai.azure.com"
+        assert api_version == "2024-10-21"
+        assert mode == "auto"
+        return "azure media transcript"
+
+    monkeypatch.setattr("app.providers.azure_openai_adapter.transcribe_with_azure_openai", fake_transcribe)
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
+    monkeypatch.setenv("AZURE_OPENAI_TRANSCRIPTION_DEPLOYMENT", "transcribe-deployment")
+    get_settings.cache_clear()
+    audio = tmp_path / "call.wav"
+    audio.write_bytes(b"fake")
+    adapter = AzureOpenAIAdapter()
+
+    text = adapter.transcribe(
+        {"transcript": None, "audio": {"storage_key": str(audio), "content_type": "audio/wav"}, "video": None},
+        use_full_media=True,
+    )
+    assert called["ok"] is True
+    assert text == "azure media transcript"
+    get_settings.cache_clear()
+
+
+def test_azure_openai_adapter_requires_transcription_deployment(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_TRANSCRIPTION_DEPLOYMENT", "")
+    get_settings.cache_clear()
+    audio = tmp_path / "call.wav"
+    audio.write_bytes(b"fake")
+    adapter = AzureOpenAIAdapter()
+
+    try:
+        adapter.transcribe(
+            {"transcript": None, "audio": {"storage_key": str(audio), "content_type": "audio/wav"}, "video": None},
+            use_full_media=True,
+        )
+    except RuntimeError as exc:
+        assert "stage=transcription" in str(exc)
+        assert "AZURE_OPENAI_TRANSCRIPTION_DEPLOYMENT" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError for missing transcription deployment")
+    get_settings.cache_clear()
+
+
+def test_azure_openai_adapter_requires_chat_deployment_for_structured_extraction(monkeypatch):
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "")
+    monkeypatch.setenv("LLM_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr("app.providers.azure_openai_adapter.select_key_frames", lambda **_kwargs: [])
+    monkeypatch.setattr("app.providers.azure_openai_adapter.extract_key_frame_images", lambda **_kwargs: [])
+    adapter = AzureOpenAIAdapter()
+
+    try:
+        adapter.build_evidence(
+            input_manifest={"transcript": None, "audio": None, "video": None},
+            transcript_text="hello world",
+            processing_profile="balanced",
+            use_full_media=False,
+        )
+    except RuntimeError as exc:
+        assert "stage=structured_extraction" in str(exc)
+        assert "AZURE_OPENAI_CHAT_DEPLOYMENT" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError for missing chat deployment")
+    get_settings.cache_clear()

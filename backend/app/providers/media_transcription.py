@@ -7,6 +7,29 @@ from typing import Dict, List, Optional, Tuple
 
 import httpx
 
+from app.config import get_settings
+
+AZURE_MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
+
+
+def _normalize_azure_mode(mode: Optional[str]) -> str:
+    normalized = str(mode or "auto").strip().lower()
+    return normalized if normalized in {"openai_v1", "deployment", "auto"} else "auto"
+
+
+def _azure_mode_candidates(mode: Optional[str]) -> list[str]:
+    normalized = _normalize_azure_mode(mode)
+    if normalized == "openai_v1":
+        return ["openai_v1"]
+    if normalized == "deployment":
+        return ["deployment"]
+    return ["openai_v1", "deployment"]
+
+
+def _trim_error_body(text: str, limit: int = 180) -> str:
+    compact = " ".join(str(text or "").split())
+    return compact[:limit]
+
 
 def _collect_media_entries(input_manifest: Dict) -> List[Tuple[str, Dict]]:
     entries: List[Tuple[str, Dict]] = []
@@ -64,6 +87,90 @@ def transcribe_with_openai(input_manifest: Dict, api_key: Optional[str], model: 
         return "\n\n".join(transcripts).strip()
     if errors:
         raise RuntimeError(f"openai_transcription_failed: {'; '.join(errors[:3])}")
+    return ""
+
+
+def transcribe_with_azure_openai(
+    input_manifest: Dict,
+    api_key: Optional[str],
+    endpoint: Optional[str],
+    deployment: str,
+    api_version: str = "2024-10-21",
+    mode: str = "auto",
+) -> str:
+    media_entries = _collect_media_entries(input_manifest)
+    if not media_entries:
+        return ""
+    if not api_key or not endpoint or not deployment:
+        raise RuntimeError("azure_openai_config_invalid: missing endpoint, api_key, or deployment")
+
+    base = endpoint.rstrip("/")
+    prompt = (
+        "Transcribe this media to plain English text for business process analysis. "
+        "Keep wording faithful and concise."
+    )
+
+    transcripts: List[str] = []
+    errors: List[str] = []
+    with httpx.Client(timeout=180.0) as client:
+        for source, entry in media_entries:
+            file_path = Path(str(entry.get("storage_key", "")))
+            if not file_path.exists():
+                errors.append(f"{source}: file_not_found")
+                continue
+            size_bytes = file_path.stat().st_size
+            if size_bytes > AZURE_MAX_FILE_SIZE_BYTES:
+                errors.append(
+                    f"{source}: provider_file_too_large:{size_bytes}_bytes_exceeds_azure_25mb_limit"
+                )
+                continue
+            mime_type = entry.get("content_type", "application/octet-stream")
+            with file_path.open("rb") as f:
+                files = {"file": (entry.get("filename") or file_path.name, f, mime_type)}
+                attempt_errors: List[str] = []
+                text = ""
+                for selected_mode in _azure_mode_candidates(mode):
+                    if selected_mode == "openai_v1":
+                        url = f"{base}/openai/v1/audio/transcriptions"
+                        headers = {"Authorization": f"Bearer {api_key}"}
+                        data = {
+                            "model": deployment,
+                            "response_format": "json",
+                            "language": "en",
+                            "prompt": prompt,
+                        }
+                    else:
+                        url = (
+                            f"{base}/openai/deployments/{deployment}/audio/transcriptions"
+                            f"?api-version={api_version}"
+                        )
+                        headers = {"api-key": api_key}
+                        data = {"response_format": "json", "language": "en", "prompt": prompt}
+                    try:
+                        f.seek(0)
+                        response = client.post(url, headers=headers, data=data, files=files)
+                        if response.status_code >= 400:
+                            raise RuntimeError(
+                                f"http_{response.status_code}:{_trim_error_body(response.text)}"
+                            )
+                        payload = response.json() if "json" in response.headers.get("content-type", "").lower() else {}
+                        text = str(payload.get("text", "")).strip()
+                        if not text:
+                            text = str(getattr(response, "text", "")).strip()
+                        if text:
+                            break
+                        raise RuntimeError("empty_transcription_text")
+                    except Exception as exc:
+                        attempt_errors.append(f"{selected_mode}:{exc}")
+                if text:
+                    transcripts.append(f"[{source}] {text}")
+                else:
+                    errors.append(f"{source}: {' | '.join(attempt_errors[:2])}")
+
+    if transcripts:
+        return "\n\n".join(transcripts).strip()
+    if errors:
+        raise RuntimeError(f"azure_openai_transcription_failed: {'; '.join(errors[:3])}")
     return ""
 
 

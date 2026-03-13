@@ -17,6 +17,15 @@ class Settings(BaseSettings):
     default_processing_profile: str = Field(default="balanced", alias="DEFAULT_PROCESSING_PROFILE")
 
     openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
+    azure_openai_api_key: Optional[str] = Field(default=None, alias="AZURE_OPENAI_API_KEY")
+    azure_openai_endpoint: Optional[str] = Field(default=None, alias="AZURE_OPENAI_ENDPOINT")
+    azure_openai_api_version: str = Field(default="2024-10-21", alias="AZURE_OPENAI_API_VERSION")
+    azure_openai_mode: str = Field(default="auto", alias="AZURE_OPENAI_MODE")
+    azure_openai_chat_deployment: Optional[str] = Field(default=None, alias="AZURE_OPENAI_CHAT_DEPLOYMENT")
+    azure_openai_transcription_deployment: Optional[str] = Field(
+        default=None,
+        alias="AZURE_OPENAI_TRANSCRIPTION_DEPLOYMENT",
+    )
     google_api_key: Optional[str] = Field(default=None, alias="GOOGLE_API_KEY")
     ollama_base_url: str = Field(default="http://127.0.0.1:11434", alias="OLLAMA_BASE_URL")
     ollama_model: str = Field(default="qwen3-vl:8b", alias="OLLAMA_MODEL")
