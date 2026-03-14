@@ -1,16 +1,20 @@
 "use client";
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { apiFetch } from "./api";
 
 const guestTimeoutMinutes = Number(process.env.NEXT_PUBLIC_GUEST_ACCESS_TIMEOUT_MINUTES ?? "30");
 const safeGuestTimeoutMinutes = Number.isFinite(guestTimeoutMinutes) && guestTimeoutMinutes > 0 ? guestTimeoutMinutes : 30;
+const publicPaths = new Set(["/privacy"]);
 
 export default function AccessGate({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [enteredCode, setEnteredCode] = useState("");
   const [error, setError] = useState("");
+  const isPublicPath = pathname ? publicPaths.has(pathname) : false;
 
   useEffect(() => {
     let cancelled = false;
@@ -82,11 +86,11 @@ export default function AccessGate({ children }: { children: ReactNode }) {
     }
   }
 
-  if (!isInitialized) {
+  if (!isInitialized && !isPublicPath) {
     return <main className="gateShell" />;
   }
 
-  if (isAuthorized) {
+  if (isAuthorized || isPublicPath) {
     return <>{children}</>;
   }
 
