@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { apiBase, apiFetch } from "./api";
+import { apiBase, apiFetch, joinApiPath } from "./api";
 
 const defaultProvider = process.env.NEXT_PUBLIC_DEFAULT_PROVIDER ?? "google";
 const defaultProfile = process.env.NEXT_PUBLIC_DEFAULT_PROCESSING_PROFILE ?? "balanced";
@@ -296,12 +296,12 @@ export default function HomePage() {
       <section className="card">
         <h2>Exports</h2>
         <div className="row">
-          <a href={jobId ? `${apiBase}/api/jobs/${jobId}/exports/md` : "#"} target="_blank" rel="noreferrer">Download Markdown</a>
-          <a href={jobId ? `${apiBase}/api/jobs/${jobId}/exports/json` : "#"} target="_blank" rel="noreferrer">Download JSON</a>
+          <a href={jobId ? joinApiPath(`/api/jobs/${jobId}/exports/md`) : "#"} target="_blank" rel="noreferrer">Download Markdown</a>
+          <a href={jobId ? joinApiPath(`/api/jobs/${jobId}/exports/json`) : "#"} target="_blank" rel="noreferrer">Download JSON</a>
         </div>
         <div className="row">
-          <a href={jobId ? `${apiBase}/api/jobs/${jobId}/exports/pdf` : "#"} target="_blank" rel="noreferrer">Download PDF</a>
-          <a href={jobId ? `${apiBase}/api/jobs/${jobId}/exports/docx` : "#"} target="_blank" rel="noreferrer">Download Word (.docx)</a>
+          <a href={jobId ? joinApiPath(`/api/jobs/${jobId}/exports/pdf`) : "#"} target="_blank" rel="noreferrer">Download PDF</a>
+          <a href={jobId ? joinApiPath(`/api/jobs/${jobId}/exports/docx`) : "#"} target="_blank" rel="noreferrer">Download Word (.docx)</a>
         </div>
         <div className="row">
           <span className="muted">Available after status = completed.</span>

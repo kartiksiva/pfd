@@ -2,7 +2,7 @@ const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? "/api").replace(/\/$/, "");
 
 export { apiBase };
 
-function joinApiPath(input: string): string {
+export function joinApiPath(input: string): string {
   const normalizedInput = input.startsWith("/api/") ? input.slice(4) : input;
   const path = normalizedInput.startsWith("/") ? normalizedInput : `/${normalizedInput}`;
   return `${apiBase}${path}`;

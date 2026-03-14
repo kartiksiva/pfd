@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { apiBase, apiFetch } from "../api";
+import { apiFetch, joinApiPath } from "../api";
 
 type JobItem = {
   id: string;
@@ -120,16 +120,16 @@ export default function HistoryPageClient() {
                     <td>
                       {job.status === "completed" ? (
                         <span className="historyLinks">
-                          <a href={`${apiBase}/api/jobs/${job.id}/exports/md`} target="_blank" rel="noreferrer">
+                          <a href={joinApiPath(`/api/jobs/${job.id}/exports/md`)} target="_blank" rel="noreferrer">
                             md
                           </a>
-                          <a href={`${apiBase}/api/jobs/${job.id}/exports/json`} target="_blank" rel="noreferrer">
+                          <a href={joinApiPath(`/api/jobs/${job.id}/exports/json`)} target="_blank" rel="noreferrer">
                             json
                           </a>
-                          <a href={`${apiBase}/api/jobs/${job.id}/exports/pdf`} target="_blank" rel="noreferrer">
+                          <a href={joinApiPath(`/api/jobs/${job.id}/exports/pdf`)} target="_blank" rel="noreferrer">
                             pdf
                           </a>
-                          <a href={`${apiBase}/api/jobs/${job.id}/exports/docx`} target="_blank" rel="noreferrer">
+                          <a href={joinApiPath(`/api/jobs/${job.id}/exports/docx`)} target="_blank" rel="noreferrer">
                             docx
                           </a>
                         </span>
