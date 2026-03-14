@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { apiBase, apiFetch } from "./api";
 
-const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 const defaultProvider = process.env.NEXT_PUBLIC_DEFAULT_PROVIDER ?? "google";
 const defaultProfile = process.env.NEXT_PUBLIC_DEFAULT_PROCESSING_PROFILE ?? "balanced";
 const defaultTemplate = process.env.NEXT_PUBLIC_DEFAULT_DOCUMENT_TEMPLATE ?? "pdd";
@@ -63,7 +63,7 @@ export default function HomePage() {
     if (videoFile) fd.append("video_file", videoFile);
 
     try {
-      const res = await fetch(`${apiBase}/api/jobs`, { method: "POST", body: fd });
+      const res = await apiFetch("/api/jobs", { method: "POST", body: fd });
       const payload = await toJsonSafe(res);
       if (!res.ok || !payload?.success) {
         setError(payload?.error?.message ?? "Failed to create job.");
@@ -72,25 +72,25 @@ export default function HomePage() {
       setJobId(payload.data.job_id);
       setStatusMsg("Job submitted.");
     } catch {
-      setError(`Cannot reach API at ${apiBase}. Check backend and CORS settings.`);
+      setError(`Cannot reach API at ${apiBase || "/api"}. Check backend and CORS settings.`);
     }
   }
 
   async function refreshJob(id: string) {
     try {
-      const res = await fetch(`${apiBase}/api/jobs/${id}`);
+      const res = await apiFetch(`/api/jobs/${id}`);
       const payload = await toJsonSafe(res);
       if (res.ok && payload?.success) {
         setJob(payload.data);
       }
     } catch {
-      setError(`Cannot reach API at ${apiBase}.`);
+      setError(`Cannot reach API at ${apiBase || "/api"}.`);
     }
   }
 
   async function loadDraft(id: string) {
     try {
-      const res = await fetch(`${apiBase}/api/jobs/${id}/draft`);
+      const res = await apiFetch(`/api/jobs/${id}/draft`);
       const payload = await toJsonSafe(res);
       if (res.ok && payload?.success) {
         setDraftJson(
@@ -107,7 +107,7 @@ export default function HomePage() {
         setDraftMarkdown(payload.data.document_markdown ?? "");
       }
     } catch {
-      setError(`Cannot reach API at ${apiBase}.`);
+      setError(`Cannot reach API at ${apiBase || "/api"}.`);
     }
   }
 
@@ -122,7 +122,7 @@ export default function HomePage() {
       return;
     }
     try {
-      const res = await fetch(`${apiBase}/api/jobs/${jobId}/draft`, {
+      const res = await apiFetch(`/api/jobs/${jobId}/draft`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parsed)
@@ -134,7 +134,7 @@ export default function HomePage() {
       }
       setStatusMsg("Draft saved.");
     } catch {
-      setError(`Cannot reach API at ${apiBase}.`);
+      setError(`Cannot reach API at ${apiBase || "/api"}.`);
     }
   }
 
@@ -142,7 +142,7 @@ export default function HomePage() {
     setError("");
     if (!jobId) return;
     try {
-      const res = await fetch(`${apiBase}/api/jobs/${jobId}/finalize`, { method: "POST" });
+      const res = await apiFetch(`/api/jobs/${jobId}/finalize`, { method: "POST" });
       const payload = await toJsonSafe(res);
       if (!res.ok || !payload?.success) {
         setError(payload?.error?.message ?? "Failed to finalize.");
@@ -151,7 +151,7 @@ export default function HomePage() {
       setStatusMsg("Finalize accepted.");
       await refreshJob(jobId);
     } catch {
-      setError(`Cannot reach API at ${apiBase}.`);
+      setError(`Cannot reach API at ${apiBase || "/api"}.`);
     }
   }
 

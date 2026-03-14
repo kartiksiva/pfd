@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     cost_band_max_usd: float = Field(default=8.0, alias="COST_BAND_MAX_USD")
     task_runner: str = Field(default="inprocess", alias="TASK_RUNNER")
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    owner_access_code: str = Field(default="PFCD-OWNER-7429", alias="OWNER_ACCESS_CODE")
+    guest_access_code: str = Field(default="PFCD-GUEST-3184", alias="GUEST_ACCESS_CODE")
+    guest_access_timeout_minutes: int = Field(default=30, alias="GUEST_ACCESS_TIMEOUT_MINUTES")
+    access_session_secret: str = Field(default="change-this-demo-secret", alias="ACCESS_SESSION_SECRET")
+    access_cookie_name: str = Field(default="pfcd_access_session", alias="ACCESS_COOKIE_NAME")
+    access_cookie_secure: bool = Field(default=False, alias="ACCESS_COOKIE_SECURE")
     allowed_origins: str = Field(
         default="http://127.0.0.1:3000,http://localhost:3000",
         alias="ALLOWED_ORIGINS",

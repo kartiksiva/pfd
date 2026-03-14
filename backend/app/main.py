@@ -4,12 +4,19 @@ from typing import Optional
 from uuid import uuid4
 
 from contextlib import asynccontextmanager
-from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, Form, Query, UploadFile
+from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 
+from app.auth import (
+    AuthError,
+    attach_session_cookie,
+    clear_session_cookie,
+    get_authenticated_session,
+    validate_access_code,
+)
 from app.config import get_settings
 from app.database import Base, engine, ensure_schema_compat, get_db
 from app.export_service import generate_exports
@@ -84,6 +91,17 @@ def _validate_sop_complete(document: dict) -> tuple[bool, str]:
     return True, "ok"
 
 
+def _serialize_access_session(session) -> dict:
+    return {
+        "role": session.role,
+        "expires_at": session.expires_at.isoformat() if session.expires_at else None,
+    }
+
+
+def require_authenticated_access(request: Request):
+    return get_authenticated_session(request, settings)
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_, exc: RequestValidationError) -> JSONResponse:
     return _error_response(
@@ -91,6 +109,15 @@ async def validation_exception_handler(_, exc: RequestValidationError) -> JSONRe
         message="Request validation failed.",
         details={"errors": exc.errors()},
         status_code=422,
+    )
+
+
+@app.exception_handler(AuthError)
+async def auth_exception_handler(_, exc: AuthError) -> JSONResponse:
+    return _error_response(
+        code="ERR_AUTH_REQUIRED",
+        message=exc.message,
+        status_code=401,
     )
 
 
@@ -107,8 +134,40 @@ def health() -> dict[str, str]:
     }
 
 
+@app.post("/api/auth/session")
+def create_access_session(payload: dict = Body(...)) -> JSONResponse:
+    code = str(payload.get("code") or "")
+    session = validate_access_code(code, settings)
+    response = _success_response(
+        data={
+            "authenticated": True,
+            "session": _serialize_access_session(session),
+        }
+    )
+    attach_session_cookie(response, session, settings)
+    return response
+
+
+@app.get("/api/auth/session")
+def get_access_session(request: Request) -> JSONResponse:
+    session = get_authenticated_session(request, settings)
+    return _success_response(
+        data={
+            "authenticated": True,
+            "session": _serialize_access_session(session),
+        }
+    )
+
+
+@app.delete("/api/auth/session")
+def delete_access_session() -> JSONResponse:
+    response = _success_response(data={"authenticated": False})
+    clear_session_cookie(response, settings)
+    return response
+
+
 @app.get("/api/providers/health")
-def providers_health(timeout_seconds: float = 10.0) -> ApiEnvelope:
+def providers_health(timeout_seconds: float = 10.0, _=Depends(require_authenticated_access)) -> ApiEnvelope:
     results = check_providers_health(timeout_seconds=timeout_seconds)
     data = {
         "all_ok": all(item.ok for item in results),
@@ -127,7 +186,7 @@ def providers_health(timeout_seconds: float = 10.0) -> ApiEnvelope:
 
 
 @app.post("/api/system/retention/sweep")
-def trigger_retention_sweep() -> JSONResponse:
+def trigger_retention_sweep(_=Depends(require_authenticated_access)) -> JSONResponse:
     result = run_retention_sweep_once()
     return _success_response(data=result)
 
@@ -144,6 +203,7 @@ async def create_job(
     audio_file: Optional[UploadFile] = File(default=None),
     transcript_file: Optional[UploadFile] = File(default=None),
     db: Session = Depends(get_db),
+    _=Depends(require_authenticated_access),
 ) -> JSONResponse:
     job_id = str(uuid4())
     try:
@@ -195,6 +255,7 @@ def list_jobs(
     limit: int = Query(default=50, ge=1, le=200),
     status: Optional[JobStatus] = Query(default=None),
     db: Session = Depends(get_db),
+    _=Depends(require_authenticated_access),
 ) -> JSONResponse:
     rows = repo_list_jobs(db, limit=limit, status=(status.value if status else None))
     return _success_response(
@@ -223,7 +284,7 @@ def list_jobs(
 
 
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: str, db: Session = Depends(get_db)) -> JSONResponse:
+def get_job(job_id: str, db: Session = Depends(get_db), _=Depends(require_authenticated_access)) -> JSONResponse:
     job = repo_get_job(db, job_id)
     if not job:
         return _error_response(
@@ -256,7 +317,7 @@ def get_job(job_id: str, db: Session = Depends(get_db)) -> JSONResponse:
 
 
 @app.get("/api/jobs/{job_id}/draft")
-def get_draft(job_id: str, db: Session = Depends(get_db)) -> JSONResponse:
+def get_draft(job_id: str, db: Session = Depends(get_db), _=Depends(require_authenticated_access)) -> JSONResponse:
     job = repo_get_job(db, job_id)
     if not job:
         return _error_response(
@@ -286,7 +347,7 @@ def get_draft(job_id: str, db: Session = Depends(get_db)) -> JSONResponse:
 
 
 @app.put("/api/jobs/{job_id}/draft")
-def update_draft(job_id: str, payload: dict = Body(...), db: Session = Depends(get_db)) -> JSONResponse:
+def update_draft(job_id: str, payload: dict = Body(...), db: Session = Depends(get_db), _=Depends(require_authenticated_access)) -> JSONResponse:
     job = repo_get_job(db, job_id)
     if not job:
         return _error_response(
@@ -331,7 +392,7 @@ def update_draft(job_id: str, payload: dict = Body(...), db: Session = Depends(g
 
 
 @app.post("/api/jobs/{job_id}/finalize")
-def finalize_job(job_id: str, db: Session = Depends(get_db)) -> JSONResponse:
+def finalize_job(job_id: str, db: Session = Depends(get_db), _=Depends(require_authenticated_access)) -> JSONResponse:
     job = repo_get_job(db, job_id)
     if not job:
         return _error_response(
@@ -438,7 +499,7 @@ def finalize_job(job_id: str, db: Session = Depends(get_db)) -> JSONResponse:
 
 
 @app.get("/api/jobs/{job_id}/exports/{fmt}")
-def get_export(job_id: str, fmt: str, db: Session = Depends(get_db)):
+def get_export(job_id: str, fmt: str, db: Session = Depends(get_db), _=Depends(require_authenticated_access)):
     job = repo_get_job(db, job_id)
     if not job:
         return _error_response(
@@ -480,5 +541,5 @@ def get_export(job_id: str, fmt: str, db: Session = Depends(get_db)):
 
 
 @app.delete("/api/jobs/{job_id}")
-def delete_job(job_id: str) -> ApiEnvelope:
+def delete_job(job_id: str, _=Depends(require_authenticated_access)) -> ApiEnvelope:
     return ApiEnvelope(success=True, data={"job_id": job_id, "deleted": True}, error=None)

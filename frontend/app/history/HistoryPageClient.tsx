@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-
-const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
+import { apiBase, apiFetch } from "../api";
 
 type JobItem = {
   id: string;
@@ -30,7 +29,7 @@ export default function HistoryPageClient() {
     try {
       const query = new URLSearchParams({ limit: "100" });
       if (statusFilter) query.set("status", statusFilter);
-      const res = await fetch(`${apiBase}/api/jobs?${query.toString()}`);
+      const res = await apiFetch(`/api/jobs?${query.toString()}`);
       const payload = await res.json();
       if (!res.ok || !payload?.success) {
         setError(payload?.error?.message ?? "Failed to load job history.");
@@ -49,7 +48,7 @@ export default function HistoryPageClient() {
   async function finalizeFromHistory(jobId: string) {
     setError("");
     try {
-      const res = await fetch(`${apiBase}/api/jobs/${jobId}/finalize`, { method: "POST" });
+      const res = await apiFetch(`/api/jobs/${jobId}/finalize`, { method: "POST" });
       const payload = await res.json();
       if (!res.ok || !payload?.success) {
         setError(payload?.error?.message ?? `Failed to finalize ${jobId}.`);

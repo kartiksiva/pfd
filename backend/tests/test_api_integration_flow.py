@@ -9,8 +9,34 @@ from pypdf import PdfReader
 from app.main import app
 
 
-def test_end_to_end_job_review_finalize_export_flow(tmp_path: Path):
+def create_authenticated_client() -> TestClient:
     client = TestClient(app)
+    auth = client.post("/api/auth/session", json={"code": "PFCD-GUEST-3184"})
+    assert auth.status_code == 200
+    assert auth.json()["data"]["session"]["role"] == "guest"
+    return client
+
+
+def test_auth_required_for_job_endpoints():
+    client = TestClient(app)
+    response = client.get("/api/jobs")
+    assert response.status_code == 401
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["error"]["code"] == "ERR_AUTH_REQUIRED"
+
+
+def test_owner_session_has_no_expiry():
+    client = TestClient(app)
+    auth = client.post("/api/auth/session", json={"code": "PFCD-OWNER-7429"})
+    assert auth.status_code == 200
+    payload = auth.json()["data"]["session"]
+    assert payload["role"] == "owner"
+    assert payload["expires_at"] is None
+
+
+def test_end_to_end_job_review_finalize_export_flow(tmp_path: Path):
+    client = create_authenticated_client()
 
     transcript_path = tmp_path / "flow.txt"
     transcript_path.write_text(
@@ -90,7 +116,7 @@ def test_end_to_end_job_review_finalize_export_flow(tmp_path: Path):
 
 
 def test_list_jobs_endpoint_returns_recent_jobs(tmp_path: Path):
-    client = TestClient(app)
+    client = create_authenticated_client()
 
     transcript_path = tmp_path / "list-flow.txt"
     transcript_path.write_text("Start\nValidate\nComplete\n", encoding="utf-8")
@@ -113,7 +139,7 @@ def test_list_jobs_endpoint_returns_recent_jobs(tmp_path: Path):
 
 
 def test_sop_finalize_requires_complete_sop_contract(tmp_path: Path):
-    client = TestClient(app)
+    client = create_authenticated_client()
     transcript_path = tmp_path / "sop-flow.txt"
     transcript_path.write_text("Start\nValidate\nComplete\n", encoding="utf-8")
     with transcript_path.open("rb") as f:
@@ -150,7 +176,7 @@ def test_sop_finalize_requires_complete_sop_contract(tmp_path: Path):
 
 
 def test_custom_sop_uses_custom_template_and_finalize_contract(tmp_path: Path):
-    client = TestClient(app)
+    client = create_authenticated_client()
     transcript_path = tmp_path / "custom-sop-flow.txt"
     transcript_path.write_text("Start\nValidate\nComplete\n", encoding="utf-8")
     with transcript_path.open("rb") as f:
@@ -189,7 +215,7 @@ def test_custom_sop_uses_custom_template_and_finalize_contract(tmp_path: Path):
 
 
 def test_custom_sop_pdf_export_contains_custom_template_markers(tmp_path: Path):
-    client = TestClient(app)
+    client = create_authenticated_client()
     transcript_path = tmp_path / "custom-sop-export.txt"
     transcript_path.write_text("Start\nValidate\nComplete\n", encoding="utf-8")
     with transcript_path.open("rb") as f:

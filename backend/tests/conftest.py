@@ -6,6 +6,11 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 os.environ["LLM_ENABLED"] = "false"
+os.environ["OWNER_ACCESS_CODE"] = "PFCD-OWNER-7429"
+os.environ["GUEST_ACCESS_CODE"] = "PFCD-GUEST-3184"
+os.environ["GUEST_ACCESS_TIMEOUT_MINUTES"] = "30"
+os.environ["ACCESS_SESSION_SECRET"] = "test-session-secret"
+os.environ["ACCESS_COOKIE_SECURE"] = "false"
 
 from app import models  # noqa: F401
 from app.database import Base, engine, ensure_schema_compat

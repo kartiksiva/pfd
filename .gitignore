@@ -34,4 +34,13 @@ backend/.env
 data/
 backend/uploads/
 backend/exports/
+!infra/data/
+!infra/data/uploads/
+!infra/data/exports/
+infra/data/uploads/*
+infra/data/exports/*
+infra/data/*.db
+infra/data/*.sqlite3
+!infra/data/uploads/.gitkeep
+!infra/data/exports/.gitkeep
 samples/report.*

@@ -156,3 +156,60 @@ button {
   gap: 8px;
   align-items: center;
 }
+
+.gateShell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.18), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(20, 184, 166, 0.2), transparent 30%),
+    linear-gradient(135deg, #ecfeff 0%, #f8fafc 45%, #e2e8f0 100%);
+}
+
+.gateCard {
+  width: min(440px, 100%);
+  padding: 32px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(14px);
+}
+
+.gateEyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.gateForm {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.gateError {
+  margin-top: 12px;
+  color: #b91c1c;
+  font-size: 14px;
+}
+
+@media (max-width: 720px) {
+  .row {
+    grid-template-columns: 1fr;
+  }
+
+  main {
+    margin: 24px auto;
+  }
+
+  .gateCard {
+    padding: 24px;
+    border-radius: 18px;
+  }
+}
