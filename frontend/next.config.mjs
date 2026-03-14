@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  poweredByHeader: false,
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   async rewrites() {
     const publicApiBase = process.env.NEXT_PUBLIC_API_URL || "/api";
