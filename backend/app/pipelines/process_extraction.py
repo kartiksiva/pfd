@@ -1,4 +1,52 @@
+import re
 from typing import Dict, List
+
+
+INTERNAL_ACTION_LABELS = {
+    "segment_process_frames",
+    "infer_activity_timeline",
+    "extract_steps",
+    "detect_visual_handoffs",
+    "extract_spoken_steps",
+}
+
+
+def _is_internal_action_label(text: str) -> bool:
+    normalized = text.strip().lower()
+    if not normalized:
+        return False
+    if normalized in INTERNAL_ACTION_LABELS:
+        return True
+    return bool(re.fullmatch(r"[a-z]+(?:_[a-z0-9]+){1,6}", normalized))
+
+
+def _normalize_step_summary(summary: str, source: str = "") -> str:
+    cleaned = summary.strip()
+    if not cleaned:
+        return ""
+    if not _is_internal_action_label(cleaned):
+        return cleaned
+
+    source_key = source.strip().lower()
+    if source_key == "video":
+        return "Review the on-screen workflow segment and confirm the business action."
+    if source_key == "audio":
+        return "Review the narrated activity and confirm the business step."
+    if source_key == "transcript":
+        return "Review the transcript excerpt and confirm the business step."
+    if source_key == "llm":
+        return ""
+    return "Review the captured evidence and confirm the business step."
+
+
+def _normalize_step_title(title: str, idx: int, summary: str) -> str:
+    cleaned = title.strip()
+    if cleaned and not re.fullmatch(r"Step\s+\d+", cleaned, flags=re.IGNORECASE):
+        return cleaned
+    if summary:
+        short = summary[:60].strip()
+        return short if len(summary) <= 60 else short.rstrip() + "..."
+    return f"Step {idx}"
 
 
 def _infer_role(summary: str) -> str:
@@ -31,7 +79,9 @@ def _normalize_structured_extraction(structured: Dict, fallback_confidence: floa
         for idx, item in enumerate(steps_in, start=1):
             if not isinstance(item, dict):
                 continue
-            summary = str(item.get("summary", "")).strip()
+            summary = _normalize_step_summary(str(item.get("summary", "")), "llm")
+            if not summary:
+                continue
             role = str(item.get("role", "")).strip() or _infer_role(summary)
             system = str(item.get("system", "")).strip() or _infer_system(summary)
             roles.add(role)
@@ -39,7 +89,7 @@ def _normalize_structured_extraction(structured: Dict, fallback_confidence: floa
             process_steps.append(
                 {
                     "step_no": int(item.get("step_no") or idx),
-                    "title": str(item.get("title", "")).strip() or f"Step {idx}",
+                    "title": _normalize_step_title(str(item.get("title", "")), idx, summary),
                     "summary": summary,
                     "sources": ["llm"],
                     "confidence": float(structured.get("confidence", fallback_confidence) or fallback_confidence),
@@ -95,15 +145,20 @@ def extract_process_structure(media_payload: Dict) -> Dict:
     systems = set()
 
     for idx, item in enumerate(merged_steps, start=1):
-        summary = item.get("summary", "").strip()
+        source = ""
+        if isinstance(item.get("sources"), list) and item.get("sources"):
+            source = str(item["sources"][0])
+        summary = _normalize_step_summary(str(item.get("summary", "")), source)
+        if not summary:
+            continue
         role = _infer_role(summary)
         system = _infer_system(summary)
         roles.add(role)
         systems.add(system)
         process_steps.append(
             {
-                "step_no": idx,
-                "title": f"Step {idx}",
+                "step_no": len(process_steps) + 1,
+                "title": _normalize_step_title("", len(process_steps) + 1, summary),
                 "summary": summary,
                 "sources": item.get("sources", []),
                 "confidence": item.get("confidence", 0.0),

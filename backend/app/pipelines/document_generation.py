@@ -142,6 +142,11 @@ def generate_document_from_extraction(
         return pdd
 
     scope_text = str(pdd.get("scope", "Current-state process only."))
+    extracted_process_name = str(extraction.get("process_name", "")).strip()
+    first_step_title = mapped_steps[0].get("title", "") if mapped_steps else ""
+    sop_title = first_step_title if first_step_title and not first_step_title.lower().startswith("step ") else ""
+    if not sop_title:
+        sop_title = extracted_process_name or "Standard Operating Procedure"
     inferred_owner = (
         (pdd.get("roles", [None])[0] if isinstance(pdd.get("roles"), list) and pdd.get("roles") else None)
         or (mapped_steps[0].get("actor") if mapped_steps else None)
@@ -155,7 +160,7 @@ def generate_document_from_extraction(
     sop = {
         "document_control": {
             "sop_id": "SOP-OPS-001-" + str(pdd.get("purpose", "") or "YYYY")[:4],
-            "sop_title": mapped_steps[0].get("title", "Standard Operating Procedure") if mapped_steps else "Standard Operating Procedure",
+            "sop_title": sop_title,
             "process_owner": inferred_owner,
             "department": inferred_department,
             "effective_date": date.today().strftime("%d-%b-%Y"),

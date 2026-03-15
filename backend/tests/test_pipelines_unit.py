@@ -1,4 +1,5 @@
-from app.pipelines.document_generation import PDD_SECTION_ORDER, generate_pdd_document, generate_sipoc_rows
+from app.pipelines.document_generation import PDD_SECTION_ORDER, generate_document_from_extraction, generate_pdd_document, generate_sipoc_rows
+from app.pipelines.process_extraction import extract_process_structure
 from app.pipelines.quality_checks import run_quality_checks
 
 
@@ -66,3 +67,28 @@ def test_quality_checks_flag_low_confidence_and_missing_sipoc():
     assert "low_confidence" in types
     assert "missing_sipoc" in types
 
+
+def test_extract_process_structure_filters_internal_pipeline_action_labels():
+    extraction = extract_process_structure(
+        {
+            "merged_steps": [
+                {"summary": "segment_process_frames", "sources": ["video"], "confidence": 0.68},
+                {"summary": "infer_activity_timeline", "sources": ["audio"], "confidence": 0.68},
+                {"summary": "Visual cues detected during process walkthrough.", "sources": ["video"], "confidence": 0.6},
+            ],
+            "confidence": 0.35,
+        }
+    )
+
+    summaries = [step["summary"] for step in extraction["process_steps"]]
+    assert "segment_process_frames" not in summaries
+    assert "infer_activity_timeline" not in summaries
+    assert any("business action" in summary.lower() for summary in summaries)
+    assert any("business step" in summary.lower() for summary in summaries)
+
+
+def test_generate_document_from_extraction_avoids_generic_step_title_for_sop_title():
+    extraction = _sample_extraction()
+    extraction["process_name"] = "Invoice Reconciliation"
+    doc = generate_document_from_extraction(extraction, document_type="custom_sop", frame_images=[])
+    assert doc["document_control"]["sop_title"] == "Invoice Reconciliation"
