@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from pypdf import PdfReader
 
 from app.main import app
+from app.upload_validation import persist_demo_inputs
 
 
 def create_authenticated_client() -> TestClient:
@@ -136,6 +137,25 @@ def test_list_jobs_endpoint_returns_recent_jobs(tmp_path: Path):
     jobs = payload["data"]["jobs"]
     assert isinstance(jobs, list)
     assert any(row["id"] == job_id for row in jobs)
+
+
+def test_persist_demo_inputs_copies_demo_media(tmp_path: Path):
+    demo_dir = tmp_path / "Demo"
+    demo_dir.mkdir()
+    (demo_dir / "DemoVideo.mov").write_bytes(b"demo-video")
+    (demo_dir / "DemoAudio.m4a").write_bytes(b"demo-audio")
+    uploads_dir = tmp_path / "uploads"
+
+    manifest = persist_demo_inputs(
+        job_id="demo-job",
+        uploads_dir=uploads_dir,
+        demo_dir=demo_dir,
+    )
+
+    assert manifest["video"]["filename"] == "DemoVideo.mov"
+    assert manifest["audio"]["filename"] == "DemoAudio.m4a"
+    assert Path(manifest["video"]["storage_key"]).read_bytes() == b"demo-video"
+    assert Path(manifest["audio"]["storage_key"]).read_bytes() == b"demo-audio"
 
 
 def test_sop_finalize_requires_complete_sop_contract(tmp_path: Path):

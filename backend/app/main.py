@@ -38,12 +38,27 @@ from app.schemas import (
     SIPOCRowModel,
     SOPDocumentModel,
 )
-from app.upload_validation import ValidationError, validate_and_persist_inputs
+from app.upload_validation import ValidationError, persist_demo_inputs, validate_and_persist_inputs
 from app.worker import process_job_async
 
 settings = get_settings()
 uploads_root = Path(settings.uploads_dir)
 exports_root = Path(settings.exports_dir)
+
+
+def _resolve_demo_root() -> Path:
+    candidates = [
+        Path(__file__).resolve().parents[2] / "Demo",
+        Path(__file__).resolve().parents[1] / "Demo",
+        Path("/app/Demo"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+demo_root = _resolve_demo_root()
 
 
 @asynccontextmanager
@@ -232,6 +247,61 @@ async def create_job(
         processing_profile=processing_profile.value,
         document_template=document_template.value,
         process_name=process_name,
+        context_notes=context_notes,
+        input_manifest=input_manifest,
+        limits_applied=limits_applied,
+        retention_days=settings.retention_days,
+    )
+
+    data = JobCreateResponseData(
+        job_id=job.id,
+        status=JobStatus(job.status),
+        provider=Provider(job.provider),
+        processing_profile=ProcessingProfile(job.processing_profile),
+        document_template=DocumentTemplate((job.document_template or DocumentTemplate.pdd.value)),
+        created_at=job.created_at,
+    )
+    background_tasks.add_task(process_job_async, job.id)
+    return _success_response(data=data.model_dump(mode="json"), status_code=202)
+
+
+@app.post("/api/jobs/demo")
+def create_demo_job(
+    background_tasks: BackgroundTasks,
+    provider: Provider = Form(default=Provider.google.value),
+    processing_profile: ProcessingProfile = Form(default=ProcessingProfile.balanced.value),
+    document_template: DocumentTemplate = Form(default=DocumentTemplate.pdd.value),
+    process_name: Optional[str] = Form(default=None, max_length=255),
+    context_notes: Optional[str] = Form(default=None, max_length=2000),
+    db: Session = Depends(get_db),
+    _=Depends(require_authenticated_access),
+) -> JSONResponse:
+    job_id = str(uuid4())
+    try:
+        input_manifest = persist_demo_inputs(
+            job_id=job_id,
+            uploads_dir=uploads_root,
+            demo_dir=demo_root,
+        )
+    except ValidationError as exc:
+        status_code = 413 if exc.code == "ERR_FILE_TOO_LARGE" else 415 if exc.code == "ERR_UNSUPPORTED_MIME" else 400
+        return _error_response(code=exc.code, message=exc.message, details=exc.details, status_code=status_code)
+
+    limits_applied = {
+        "max_file_size_mb": 500,
+        "max_job_duration_seconds": settings.max_job_duration_seconds,
+        "max_provider_tokens": settings.max_provider_tokens,
+        "cost_target_band_usd_per_media_hour": {"min": settings.cost_band_min_usd, "max": settings.cost_band_max_usd},
+        "demo_inputs": True,
+    }
+
+    job = repo_create_job(
+        db,
+        job_id=job_id,
+        provider=provider.value,
+        processing_profile=processing_profile.value,
+        document_template=document_template.value,
+        process_name=process_name or "demo-run",
         context_notes=context_notes,
         input_manifest=input_manifest,
         limits_applied=limits_applied,

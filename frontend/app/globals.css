@@ -353,6 +353,9 @@ button:disabled {
 
 .primaryActionRow {
   padding: 0 22px 22px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
 .statusCard {
@@ -907,6 +910,7 @@ button:disabled {
 
   .row,
   .uploadGrid,
+  .primaryActionRow,
   .draftEntryMeta,
   .draftEntryActions,
   .exportLinksCompleted {

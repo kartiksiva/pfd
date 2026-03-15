@@ -36,16 +36,71 @@ const templatePreviews: Record<string, string> = {
 ## 1. Document Control
 | Version | Date | Author | Description |
 | :--- | :--- | :--- | :--- |
-| 1.0 | [Date] | [Author Name] | Initial Draft |
+| 1.0 | [Date] | [Author Name] | Initial Draft (As-Is Process) |
 
 ## 2. Process Overview
-* **Process Name:** [Name]
+* **Process Name:** [e.g., Invoice Validation]
 * **Objective:** [Short description of why the process exists]
+* **Frequency:** [e.g., Daily / On-demand]
+* **Estimated Volume:** [e.g., 50 cases/day]
+* **Manual Effort:** [e.g., 15 mins per case]
+
+## 3. Scope
+### 3.1 In-Scope
+* [Primary process activities covered]
+* [Systems / channels covered]
+
+### 3.2 Out-of-Scope
+* [Explicit exclusions]
+* [Future-state redesign]
+
+## 4. Prerequisites & Systems
+### 4.1 Prerequisites
+* [Required access, approvals, or source material]
+
+### 4.2 Application Inventory
+| Application | Version | Access Method |
+| :--- | :--- | :--- |
+| [System Name] | [Version] | [Web/Desktop/etc.] |
+
+---
 
 ## 5. Detailed Process Steps (As-Is)
 | Step # | Action | Role | System | Input | Output |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| 1.1 | [Action] | [Role] | [System] | [Input] | [Output] |`,
+| 1.1 | [Action] | [Role] | [System] | [Input] | [Output] |
+| 1.2 | [Action] | [Role] | [System] | [Input] | [Output] |
+
+### Step Details
+1. Follow the sequence listed in the table above.
+2. Apply business rules and exception handling where applicable.
+
+## 6. Business Rules & Logic
+* **Rule 1:** [Business rule]
+* **Rule 2:** [Business rule]
+
+## 7. Exceptions Handling
+### 7.1 Business Exceptions
+* **Scenario:** [Exception]
+* **Action:** [Resolution]
+
+### 7.2 Technical Exceptions
+* **Scenario:** [System/API issue]
+* **Action:** [Retry / escalate path]
+
+## 8. Inputs & Outputs
+* **Primary Input:** [Input]
+* **Primary Output:** [Output]
+
+## 9. Metrics & Risks
+* **Success Metric:** [Metric]
+* **Risk:** [Risk]
+* **Mitigation:** [Mitigation]
+
+## 10. SIPOC
+| Supplier | Input | Process | Output | Customer |
+| :--- | :--- | :--- | :--- | :--- |
+| [Supplier] | [Input] | [Process Step] | [Output] | [Customer] |`,
   sop: `# Standard Operating Procedure (SOP) Template
 
 ## <Process Name>
@@ -282,7 +337,9 @@ export default function HomePage() {
   const [draftMarkdown, setDraftMarkdown] = useState("");
   const [statusMsg, setStatusMsg] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
+  const [displayStageIndex, setDisplayStageIndex] = useState(-1);
 
   const canSubmit = useMemo(() => Boolean(transcriptFile || audioFile || videoFile), [transcriptFile, audioFile, videoFile]);
   const canReview = job?.status === "needs_review" || job?.status === "completed";
@@ -299,13 +356,14 @@ export default function HomePage() {
   const progressStage = (job?.progress?.stage as (typeof stageOrder)[number] | undefined) ?? (jobId ? "queued" : undefined);
   const progressPercent = typeof job?.progress?.percent === "number" ? job.progress.percent : jobId ? 0 : 0;
   const currentStageIndex = progressStage ? stageOrder.indexOf(progressStage) : -1;
+  const visibleStageIndex = isCompleted ? stageOrder.length - 1 : Math.max(displayStageIndex, currentStageIndex);
   const statusLabel = job?.status ? formatStatusLabel(job.status) : "Idle";
   const reviewButtonLabel = canReview ? "View Template and Output" : "Template and Output";
   const progressSteps = stageOrder.map((stage, index) => {
     const baseLabel = stageLabels[stage];
     const label = isCompleted && stage === "export_generation" ? "Exports generated" : baseLabel;
-    const done = isCompleted ? true : currentStageIndex > index || (stage === "ready_for_review" && job?.status === "needs_review");
-    const active = !isCompleted && progressStage === stage;
+    const done = isCompleted ? true : visibleStageIndex > index || (stage === "ready_for_review" && job?.status === "needs_review");
+    const active = !isCompleted && visibleStageIndex === index;
     return { stage, label, done, active };
   });
   const statusMessage =
@@ -332,6 +390,7 @@ export default function HomePage() {
       setError("Upload at least one file.");
       return;
     }
+    setIsSubmitting(true);
     const fd = new FormData();
     fd.append("provider", provider);
     fd.append("processing_profile", profile);
@@ -356,6 +415,37 @@ export default function HomePage() {
       setStatusMsg("Job submitted.");
     } catch {
       setError(`Cannot reach API at ${apiBase || "/api"}. Check backend and CORS settings.`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function submitDemoJob() {
+    setError("");
+    setIsSubmitting(true);
+    const fd = new FormData();
+    fd.append("provider", provider);
+    fd.append("processing_profile", profile);
+    fd.append("document_template", documentTemplate);
+    if (processName.trim()) fd.append("process_name", processName.trim());
+    if (contextNotes) fd.append("context_notes", contextNotes);
+
+    try {
+      const res = await apiFetch("/api/jobs/demo", { method: "POST", body: fd });
+      const payload = await toJsonSafe(res);
+      if (!res.ok || !payload?.success) {
+        setError(payload?.error?.message ?? "Failed to create demo job.");
+        return;
+      }
+      setJobId(payload.data.job_id);
+      setJob(null);
+      setDraftMarkdown("");
+      setIsReviewOpen(false);
+      setStatusMsg("Demo job submitted.");
+    } catch {
+      setError(`Cannot reach API at ${apiBase || "/api"}. Check backend and CORS settings.`);
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -429,9 +519,31 @@ export default function HomePage() {
     refreshJob(jobId);
     const t = setInterval(() => {
       refreshJob(jobId);
-    }, 2000);
+    }, 750);
     return () => clearInterval(t);
   }, [jobId]);
+
+  useEffect(() => {
+    if (!jobId) {
+      setDisplayStageIndex(-1);
+      return;
+    }
+    if (currentStageIndex < 0) return;
+    if (displayStageIndex < 0) {
+      setDisplayStageIndex(currentStageIndex);
+      return;
+    }
+    if (currentStageIndex <= displayStageIndex) return;
+
+    const timer = window.setTimeout(() => {
+      setDisplayStageIndex((prev) => {
+        if (prev < 0) return currentStageIndex;
+        return Math.min(prev + 1, currentStageIndex);
+      });
+    }, 280);
+
+    return () => window.clearTimeout(timer);
+  }, [jobId, currentStageIndex, displayStageIndex]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -523,6 +635,9 @@ export default function HomePage() {
                     <UploadPanel title="Video" accept="video/*" file={videoFile} hint="MP4, MOV, AVI, WEBM" onChange={setVideoFile} />
                   </div>
                 </div>
+                <p className="fieldNote">
+                  Or skip uploads and run the bundled demo media from the server with the current processing settings.
+                </p>
               </div>
 
               <div className="formSection">
@@ -554,8 +669,11 @@ export default function HomePage() {
               {error ? <p className="formError">{error}</p> : null}
 
               <div className="primaryActionRow">
-                <button onClick={submitJob} disabled={!canSubmit}>
+                <button onClick={submitJob} disabled={!canSubmit || isSubmitting}>
                   Generate Documentation
+                </button>
+                <button className="secondaryButton" onClick={submitDemoJob} disabled={isSubmitting}>
+                  Run Demo Files
                 </button>
               </div>
             </section>
