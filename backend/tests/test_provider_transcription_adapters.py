@@ -6,12 +6,14 @@ import pytest
 from app.config import get_settings
 from app.providers.azure_openai_adapter import AzureOpenAIAdapter
 from app.providers.google_adapter import GoogleAdapter
+from app.providers.media_transcription import _TRANSCRIPTION_PROMPT_GOOGLE, _TRANSCRIPTION_PROMPT_OAI
 from app.providers.openai_adapter import OpenAIAdapter
 from app.providers.structured_extraction import (
     MAX_EXTRACTION_OUTPUT_TOKENS,
     SYSTEM_PROMPT,
     _azure_openai_extract,
     _compose_prompt_text,
+    _frame_context_lines,
     _google_extract,
     _normalize_extraction,
     _ollama_extract,
@@ -198,22 +200,26 @@ def test_compose_prompt_text_includes_template_hint_and_context_notes():
         document_template="custom_sop",
         context_notes="This is a GAFTA contract compliance process.",
     )
-    assert "Document template hint:" in prompt
-    assert "automation opportunities" in prompt
+    assert "Document template: Custom SOP." in prompt
+    assert "automation_signal" in prompt
     assert "Additional context provided by user:" in prompt
     assert "GAFTA contract compliance process" in prompt
     assert "Source transcript:" in prompt
 
 
-def test_compose_prompt_text_can_prepend_system_prompt():
-    prompt = _compose_prompt_text(
-        "Transcript body",
-        document_template="pdd",
-        context_notes=None,
-        include_system_prompt=True,
+def test_compose_prompt_text_does_not_embed_system_prompt():
+    prompt = _compose_prompt_text("Transcript body", document_template="pdd", context_notes=None)
+    assert "Document template: PDD" in prompt
+    assert SYSTEM_PROMPT not in prompt
+
+
+def test_frame_context_lines_include_confidence_and_guardrail():
+    text = _frame_context_lines(
+        [{"timestamp_seconds": 12.34, "reason": "ui_transition", "confidence": 0.72}]
     )
-    assert "Invariant extraction policy:" in prompt
-    assert SYSTEM_PROMPT in prompt
+    assert "Visual frame evidence" in text
+    assert "Do not create process steps from frame evidence alone." in text
+    assert "12.34s | ui_transition | conf 0.72" in text
 
 
 def test_normalize_extraction_preserves_new_structured_fields():
@@ -362,15 +368,30 @@ def test_extraction_requests_include_token_caps_and_prompt_policy(monkeypatch, e
     if extractor in {_openai_extract, _azure_openai_extract}:
         assert prompt_value == SYSTEM_PROMPT
         user_content = body["messages"][1]["content"][0]["text"]
-        assert "Document template hint:" in user_content
+        assert "Document template:" in user_content
         assert "Additional context provided by user:" in user_content
-    else:
-        assert SYSTEM_PROMPT in prompt_value
-        assert "Document template hint:" in prompt_value
+        assert "Counter-example - do NOT produce this:" in user_content
+    elif extractor is _google_extract:
+        assert body["system_instruction"]["parts"][0]["text"] == SYSTEM_PROMPT
+        assert SYSTEM_PROMPT not in prompt_value
+        assert "Document template:" in prompt_value
         assert "Additional context provided by user:" in prompt_value
-    assert "Do not split adjacent activities into separate steps" in str(body)
-    assert "Add an effort_data row for every process step" in str(body)
-    assert "Create one SIPOC row per process step" in str(body)
+        assert "Counter-example - do NOT produce this:" in prompt_value
+    else:
+        assert body["system"] == SYSTEM_PROMPT
+        assert SYSTEM_PROMPT not in prompt_value
+        assert "Document template:" in prompt_value
+        assert "Additional context provided by user:" in prompt_value
+        assert "Counter-example - do NOT produce this:" in prompt_value
+
+
+def test_transcription_prompt_constants_include_cleanup_guardrails():
+    assert "Remove speaker labels" in _TRANSCRIPTION_PROMPT_OAI
+    assert "preserve hesitations or self-corrections" in _TRANSCRIPTION_PROMPT_OAI
+    assert "Separate speaker turns with a blank line." in _TRANSCRIPTION_PROMPT_GOOGLE
+    assert "Preserve all named entities, system names, numbers, and SLA commitments exactly as spoken." in (
+        _TRANSCRIPTION_PROMPT_GOOGLE
+    )
 
 
 def test_openai_extract_retries_transient_failures(monkeypatch):

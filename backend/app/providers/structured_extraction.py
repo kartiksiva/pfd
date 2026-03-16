@@ -14,28 +14,56 @@ MAX_EXTRACTION_OUTPUT_TOKENS = 4096
 MAX_EXTRACTION_RETRIES = 2
 MAX_RAW_PREVIEW_CHARS = 1000
 SYSTEM_PROMPT = """
-You extract business process structure from evidence.
-Return valid JSON only.
-Extract the current-state process only.
-Do not invent roles, ownership, or unsupported facts.
-Do not include future-state recommendations.
-Preserve factual fields as structured data whenever possible.
-Set confidence to reflect evidence strength.
+You are a business process analyst specialising in current-state process documentation.
+
+Extraction policy - always apply:
+- Return valid JSON only. No markdown fences, no preamble, no trailing commentary.
+- Extract the current-state process only. Never include future-state recommendations,
+  proposed automation, improvement suggestions, or hypothetical redesigns in any field.
+- Do not invent roles, system names, approvers, owners, or contact details that are
+  not directly supported by the transcript or frame evidence.
+- Prefer concise paraphrase over verbatim transcript quotes. Remove speaker labels,
+  timestamps, and turn markers from all extracted text fields.
+- Preserve evidence-backed operational facts as structured fields, not narrative prose:
+  SLA targets, volume ranges, error rates, effort times, exception scenarios,
+  routing rules, and compliance requirements all belong in structured fields.
+- Facilitator questions, workshop prompts, and hypothetical future-state statements
+  must never appear in process_steps, exceptions, business_rules, or operational_facts.
+- Confidence must reflect actual evidence strength. A sparse or ambiguous transcript
+  warrants confidence <= 0.55. Do not exceed 0.85 unless steps, roles, and systems
+  are all explicitly named and sequenced in the evidence.
 """.strip()
 
 _TEMPLATE_HINTS = {
-    "pdd": "Document template hint: emphasize process steps, roles, systems, and SIPOC coverage.",
-    "sop": "Document template hint: emphasize controls, exceptions, quality checks, SLA commitments, and training context.",
+    "pdd": (
+        "Document template: PDD (Process Definition Document).\n"
+        "Emphasise: process_steps sequence, roles, systems, and SIPOC coverage.\n"
+        "Capture every discrete action visible in the evidence, including short steps such as "
+        "'open application' or 'download file' if they appear.\n"
+        "Do not emphasise exception matrices, training requirements, or controls beyond "
+        "what is directly stated in the evidence."
+    ),
+    "sop": (
+        "Document template: SOP (Standard Operating Procedure).\n"
+        "Emphasise: exception_details, control_requirements, sla_targets, governance_notes, "
+        "and any training or knowledge-transfer references in operational_facts.\n"
+        "For each exception extract: the scenario, the trigger condition, and the resolution action.\n"
+        "Do not invent quality-check steps, approval paths, or escalation contacts not "
+        "present in the evidence."
+    ),
     "custom_sop": (
-        "Document template hint: emphasize controls, exceptions, quality checks, SLA commitments, training context, "
-        "automation opportunities, and FAQ-oriented supporting context."
+        "Document template: Custom SOP.\n"
+        "Same emphasis as SOP. Additionally: populate pain_points with quantification and "
+        "automation_signal. Where effort times are mentioned, populate effort_data per step.\n"
+        "Set automation_signal to 'high' only when the transcript explicitly states volume, "
+        "repetition, or rule-based manual work. Do not infer automation potential from "
+        "general process descriptions alone."
     ),
 }
 
 PROMPT_TEMPLATE = """
-You are a business process analyst.
-Extract a Process Definition and SIPOC from the source transcript.
-Return ONLY valid JSON with this schema:
+Extract a Process Definition and SIPOC from the source transcript below.
+Return ONLY valid JSON matching this schema exactly:
 {
   "process_name": "string",
   "purpose": "string",
@@ -46,12 +74,12 @@ Return ONLY valid JSON with this schema:
     {
       "step_no": 1,
       "title": "short action title",
-      "summary": "what happens in this step",
+      "summary": "what happens - current state only",
       "role": "actor role",
-      "system": "system/application",
+      "system": "system or application used",
       "input": "primary input",
       "output": "primary output",
-      "exception": "optional exception"
+      "exception": "exception or empty string"
     }
   ],
   "roles": ["string"],
@@ -106,23 +134,12 @@ Return ONLY valid JSON with this schema:
   "confidence": 0.0
 }
 
-Rules:
-- Consolidate transcript noise into business-ready steps.
-- Use the smallest set of distinct current-state steps that still preserves real handoffs, decisions, or system changes.
-- Do not split adjacent activities into separate steps when they share the same actor and system and do not introduce a materially different input or output.
-- Keep process_steps, effort_data, and sipoc aligned to the same current-state step model.
-- Remove timestamps/speaker labels from step action text.
-- Include approvals, SLAs, exception paths, controls, and completion criteria where present.
-- Extract any stated effort times, volumes, error rates, and SLA commitments as structured data fields, not narrative-only text.
-- Add an effort_data row for every process step that has transcript-supported timing evidence.
-- If one stated duration clearly covers a grouped activity, attach it to the corresponding current-state step instead of leaving the step blank.
-- Do not invent effort values when the transcript gives no timing support.
-- Create one SIPOC row per process step when possible, using the exact process step title from process_steps.
-- Keep supplier and customer values normalized to a single role/team label per row; avoid duplicate SIPOC rows and avoid comma-joined duplicate actors.
-- Extract the current-state process only; do not mix future-state recommendations into steps, exceptions, controls, or governance facts.
-- Do not copy facilitator questions or workshop quotes verbatim into structured fields when a concise paraphrase is possible.
-- Do not invent approvers, contact details, or ownership that are not supported by the transcript.
-- Keep confidence between 0.0 and 1.0.
+Counter-example - do NOT produce this:
+  business_rules: ["System should automatically categorise complaints by region"]
+  reason: future-state recommendation, not a current-state rule.
+
+Correct form:
+  business_rules: ["Analyst manually selects complaint category and region from dropdown"]
 
 __TRANSCRIPT__
 """.strip()
@@ -393,12 +410,9 @@ def _compose_prompt_text(
     transcript_text: str,
     document_template: str,
     context_notes: Optional[str],
-    include_system_prompt: bool = False,
 ) -> str:
     transcript_block = transcript_text[:120000] if transcript_text else "No transcript provided."
     sections = []
-    if include_system_prompt:
-        sections.append(f"Invariant extraction policy:\n{SYSTEM_PROMPT}")
     sections.append(_template_hint(document_template))
     if context_notes and str(context_notes).strip():
         sections.append(
@@ -412,10 +426,17 @@ def _compose_prompt_text(
 def _frame_context_lines(frame_images: list[dict[str, Any]]) -> str:
     if not frame_images:
         return ""
-    lines = ["Frame evidence timestamps and reasons:"]
+    lines = [
+        "Visual frame evidence (timestamp_s | event label | confidence):",
+        "Use these to corroborate transcript steps or identify system/UI transitions not "
+        "explicit in the text. Do not create process steps from frame evidence alone.",
+    ]
     for frame in frame_images[:20]:
+        ts = float(frame.get("timestamp_seconds", 0.0))
+        reason = str(frame.get("reason", "baseline"))
+        conf = float(frame.get("confidence", 0.5))
         lines.append(
-            f"- {float(frame.get('timestamp_seconds', 0.0)):.2f}s | {str(frame.get('reason', 'frame'))}"
+            f"  {ts:.2f}s | {reason} | conf {conf:.2f}"
         )
     return "\n".join(lines)
 
@@ -437,7 +458,6 @@ def _google_extract(
             transcript_text,
             document_template=document_template,
             context_notes=context_notes,
-            include_system_prompt=True,
         ),
     )
     frame_ctx = _frame_context_lines(frame_images)
@@ -457,7 +477,8 @@ def _google_extract(
             }
         )
     body = {
-        "contents": [{"parts": parts}],
+        "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": [{"role": "user", "parts": parts}],
         "generationConfig": {
             "temperature": 0.1,
             "responseMimeType": "application/json",
@@ -606,7 +627,6 @@ def _ollama_extract(
             transcript_text,
             document_template=document_template,
             context_notes=context_notes,
-            include_system_prompt=True,
         ),
     )
     frame_ctx = _frame_context_lines(frame_images)
@@ -620,6 +640,7 @@ def _ollama_extract(
         images.append(base64.b64encode(frame_path.read_bytes()).decode("ascii"))
     body = {
         "model": model,
+        "system": SYSTEM_PROMPT,
         "prompt": prompt,
         "images": images,
         "stream": False,

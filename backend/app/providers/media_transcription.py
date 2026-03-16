@@ -10,6 +10,25 @@ import httpx
 from app.config import get_settings
 
 AZURE_MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
+_TRANSCRIPTION_PROMPT_OAI = (
+    "Transcribe this media to plain English text for business process analysis. "
+    "Keep wording faithful and concise. "
+    "Remove speaker labels (e.g. 'Speaker 1:', 'Interviewer:') and timestamps. "
+    "Lightly clean obvious disfluencies such as 'um' and 'uh' only when meaning is "
+    "entirely unchanged; preserve hesitations or self-corrections that signal uncertainty "
+    "in the described process. "
+    "Do not add section headings, bullet points, or markdown."
+)
+_TRANSCRIPTION_PROMPT_GOOGLE = (
+    "Transcribe this media in English for business process documentation. "
+    "Return plain text only - no JSON, no markdown, no commentary. "
+    "Remove speaker labels and timestamps. "
+    "Lightly clean obvious disfluencies such as 'um' and 'uh' only when meaning is "
+    "entirely unchanged; preserve hesitations or self-corrections that signal uncertainty "
+    "in the described process. "
+    "Preserve all named entities, system names, numbers, and SLA commitments exactly as spoken. "
+    "Separate speaker turns with a blank line."
+)
 
 
 def _normalize_azure_mode(mode: Optional[str]) -> str:
@@ -56,10 +75,7 @@ def transcribe_with_openai(input_manifest: Dict, api_key: Optional[str], model: 
 
     url = "https://api.openai.com/v1/audio/transcriptions"
     headers = {"Authorization": f"Bearer {api_key}"}
-    prompt = (
-        "Transcribe this media to plain English text for business process analysis. "
-        "Keep wording faithful and concise."
-    )
+    prompt = _TRANSCRIPTION_PROMPT_OAI
 
     transcripts: List[str] = []
     errors: List[str] = []
@@ -105,10 +121,7 @@ def transcribe_with_azure_openai(
         raise RuntimeError("azure_openai_config_invalid: missing endpoint, api_key, or deployment")
 
     base = endpoint.rstrip("/")
-    prompt = (
-        "Transcribe this media to plain English text for business process analysis. "
-        "Keep wording faithful and concise."
-    )
+    prompt = _TRANSCRIPTION_PROMPT_OAI
 
     transcripts: List[str] = []
     errors: List[str] = []
@@ -234,10 +247,7 @@ def transcribe_with_google(input_manifest: Dict, api_key: Optional[str], model: 
     if not api_key:
         return ""
 
-    prompt = (
-        "Transcribe this media in English for business process documentation. "
-        "Return plain text only with no JSON, markdown, or commentary."
-    )
+    prompt = _TRANSCRIPTION_PROMPT_GOOGLE
     transcripts: List[str] = []
     errors: List[str] = []
 
