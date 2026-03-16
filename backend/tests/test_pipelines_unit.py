@@ -15,6 +15,27 @@ There is a manual override and compliance requires an audit trail.
 """.strip()
 
 
+MARKDOWN_TRANSCRIPT = """
+# Process Discovery Session Transcript
+
+## Session Overview
+
+- **Session Title:** Process Discovery Workshop - Customer Complaint Intake and Resolution Triage
+- **Date:** March 15, 2026
+
+## Participants
+
+- Anita Rao, Customer Service Manager
+
+## Transcript
+
+**00:00 - 05:00**
+
+**Daniel Brooks:** Thanks, everyone.
+**Priya Nair:** A complaint can come in through email, web form, customer support portal, or by phone.
+""".strip()
+
+
 def _sample_extraction():
     return {
         "process_steps": [
@@ -119,6 +140,24 @@ def test_extract_process_structure_preserves_operational_facts_from_transcript()
     assert "CRM" in extraction["systems"]
     assert "Outlook" in extraction["systems"]
     assert any("20 percent" in item for item in extraction["metrics"])
+
+
+def test_extract_process_structure_blocks_naive_fallback_for_markdown_transcript_when_llm_extraction_is_missing():
+    extraction = extract_process_structure(
+        {
+            "merged_steps": [
+                {"summary": "# Process Discovery Session Transcript", "sources": ["transcript"], "confidence": 0.7},
+                {"summary": "## Session Overview", "sources": ["transcript"], "confidence": 0.7},
+            ],
+            "transcript_text": MARKDOWN_TRANSCRIPT,
+            "structured_extraction": None,
+            "confidence": 0.2,
+        }
+    )
+
+    assert extraction["process_steps"] == []
+    assert extraction["confidence"] == 0.0
+    assert "Structured extraction was unavailable" in extraction["purpose"]
 
 
 def test_generate_document_from_extraction_avoids_generic_step_title_for_sop_title():

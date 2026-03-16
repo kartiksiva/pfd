@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import base64
 import time
@@ -6,6 +7,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 MAX_EXTRACTION_OUTPUT_TOKENS = 4096
 MAX_EXTRACTION_RETRIES = 2
@@ -664,5 +667,13 @@ def extract_with_llm(
             model=model,
             frame_images=frame_images,
         )
-    except Exception:
+    except Exception as exc:
+        logger.exception(
+            "structured_extraction_failed provider=%s model=%s document_template=%s transcript_present=%s frame_count=%s",
+            provider,
+            model,
+            document_template,
+            bool((transcript_text or "").strip()),
+            len(frame_images),
+        )
         return None

@@ -104,6 +104,21 @@ def _sentence_windows(transcript_text: str) -> List[str]:
     return windows
 
 
+def _looks_like_transcript_markdown(transcript_text: str) -> bool:
+    text = str(transcript_text or "")
+    if not text.strip():
+        return False
+    markers = [
+        "# Process Discovery Session Transcript",
+        "## Session Overview",
+        "## Participants",
+        "## Transcript",
+        "**00:00 - 05:00**",
+    ]
+    hits = sum(1 for marker in markers if marker in text)
+    return hits >= 2
+
+
 def _contains_any(text: str, needles: List[str]) -> bool:
     lowered = text.lower()
     return any(needle in lowered for needle in needles)
@@ -374,6 +389,31 @@ def extract_process_structure(media_payload: Dict) -> Dict:
     if isinstance(structured, dict) and structured.get("process_steps"):
         normalized = _normalize_structured_extraction(structured, fallback_confidence=float(media_payload.get("confidence", 0.0)))
         return _enrich_extraction_with_operational_facts(normalized, str(media_payload.get("transcript_text", "") or ""))
+
+    transcript_text = str(media_payload.get("transcript_text", "") or "")
+    if _looks_like_transcript_markdown(transcript_text):
+        base = {
+            "process_steps": [],
+            "roles": [],
+            "systems": [],
+            "handoffs": [],
+            "process_name": "Analyzed Process",
+            "purpose": "Structured extraction was unavailable for the uploaded transcript and requires review.",
+            "scope": "Current-state process only.",
+            "triggers": ["Transcript review requires structured extraction to identify the process boundary."],
+            "preconditions": ["Relevant source material is available."],
+            "business_rules": [],
+            "exceptions": [],
+            "outputs": [],
+            "metrics": [],
+            "risks": [],
+            "decision_rules": [],
+            "effort_data": [],
+            "pain_points": [],
+            "sipoc": [],
+            "confidence": 0.0,
+        }
+        return _enrich_extraction_with_operational_facts(base, transcript_text)
 
     merged_steps = media_payload.get("merged_steps", [])
     process_steps: List[Dict] = []
