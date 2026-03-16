@@ -5,7 +5,7 @@ from app.pipelines.frame_extraction import extract_key_frame_images
 from app.pipelines.frame_selector import select_key_frames
 from app.providers.base import EvidencePayload, ProviderAdapter, has_audio_or_video, read_transcript_file
 from app.providers.media_transcription import transcribe_with_azure_openai
-from app.providers.structured_extraction import extract_with_llm
+from app.providers.structured_extraction import extract_with_llm_detailed
 
 
 class AzureOpenAIAdapter(ProviderAdapter):
@@ -111,10 +111,11 @@ class AzureOpenAIAdapter(ProviderAdapter):
         )
 
         structured = None
+        structured_error = None
         if settings.llm_enabled and (transcript_text or frame_images):
             self._validate_generation_config()
             try:
-                structured = extract_with_llm(
+                structured, structured_error = extract_with_llm_detailed(
                     provider=self.provider_name,
                     transcript_text=transcript_text,
                     document_template=document_template,
@@ -142,6 +143,7 @@ class AzureOpenAIAdapter(ProviderAdapter):
             confidence=float(structured.get("confidence", 0.76)) if structured else (0.70 if candidates else 0.0),
             frame_images=frame_images,
             structured_extraction=structured,
+            structured_extraction_error=structured_error,
         )
 
     def estimate_cost(self, input_manifest: Dict, use_full_media: bool = False) -> Dict:

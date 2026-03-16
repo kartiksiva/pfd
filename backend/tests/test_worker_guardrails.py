@@ -130,6 +130,7 @@ def test_fallback_success_is_visible_in_review_notes(monkeypatch):
                 process_candidates = [{"source": "transcript", "action": "extract_steps", "summary": "Step one"}]
                 confidence = 0.85
                 structured_extraction = None
+                structured_extraction_error = None
 
             class Result:
                 model_plan = {"provider": "google", "transcription_model": "gemini-2.5-flash"}
@@ -152,3 +153,38 @@ def test_fallback_success_is_visible_in_review_notes(monkeypatch):
     assert row.model_plan.get("fallback_used") is True
     flags = row.review_notes.get("flags", [])
     assert any(flag.get("type") == "provider_fallback_used" for flag in flags)
+
+
+def test_structured_extraction_failure_is_visible_in_review_notes(monkeypatch):
+    job_id = _seed_job(provider="google")
+
+    class SuccessAdapter:
+        def run(self, _input_manifest, processing_profile="balanced", document_template="pdd", context_notes=None):
+            class Evidence:
+                provider = "google"
+                transcript_text = "# Process Discovery Session Transcript"
+                visual_events = []
+                process_candidates = [{"source": "transcript", "action": "extract_steps", "summary": "Transcript uploaded"}]
+                confidence = 0.7
+                structured_extraction = None
+                structured_extraction_error = "HTTPStatusError: HTTP 503"
+
+            class Result:
+                model_plan = {"provider": "google", "transcription_model": "gemini-2.5-flash"}
+                usage_cost_estimate = {"currency": "USD", "estimated_total": 1.0, "estimated_per_media_hour": 3.0}
+                evidence = Evidence()
+
+            return Result()
+
+    monkeypatch.setattr("app.worker.get_provider_adapter", lambda _provider: SuccessAdapter())
+    process_job_async(job_id)
+    row = _load_job(job_id)
+    assert row.status == "needs_review"
+    flags = row.review_notes.get("flags", [])
+    assert any(flag.get("type") == "structured_extraction_failed" for flag in flags)
+    assert any("HTTP 503" in flag.get("message", "") for flag in flags)
+    assert any(
+        "Structured extraction failed." in assumption
+        for assumption in row.review_notes.get("assumptions", [])
+    )
+    assert row.progress.get("evidence", {}).get("structured_extraction_error") == "HTTPStatusError: HTTP 503"

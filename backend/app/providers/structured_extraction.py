@@ -624,13 +624,38 @@ def extract_with_llm(
     azure_endpoint: Optional[str] = None,
     frame_images: Optional[list[dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
+    result, _error = extract_with_llm_detailed(
+        provider=provider,
+        transcript_text=transcript_text,
+        document_template=document_template,
+        context_notes=context_notes,
+        api_key=api_key,
+        model=model,
+        ollama_base_url=ollama_base_url,
+        azure_endpoint=azure_endpoint,
+        frame_images=frame_images,
+    )
+    return result
+
+
+def extract_with_llm_detailed(
+    provider: str,
+    transcript_text: str,
+    document_template: str,
+    context_notes: Optional[str],
+    api_key: Optional[str],
+    model: str,
+    ollama_base_url: Optional[str] = None,
+    azure_endpoint: Optional[str] = None,
+    frame_images: Optional[list[dict[str, Any]]] = None,
+) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
     frame_images = frame_images or []
     if (not transcript_text and not frame_images) or not api_key:
         if provider != "ollama":
-            return None
+            return None, None
     try:
         if provider == "google":
-            return _google_extract(
+            result = _google_extract(
                 transcript_text=transcript_text,
                 document_template=document_template,
                 context_notes=context_notes,
@@ -638,10 +663,10 @@ def extract_with_llm(
                 model=model,
                 frame_images=frame_images,
             )
-        if provider == "azure_openai":
+        elif provider == "azure_openai":
             if not azure_endpoint:
-                return None
-            return _azure_openai_extract(
+                return None, "Structured extraction skipped: Azure endpoint is missing."
+            result = _azure_openai_extract(
                 transcript_text=transcript_text,
                 document_template=document_template,
                 context_notes=context_notes,
@@ -650,8 +675,8 @@ def extract_with_llm(
                 endpoint=azure_endpoint,
                 frame_images=frame_images,
             )
-        if provider == "ollama":
-            return _ollama_extract(
+        elif provider == "ollama":
+            result = _ollama_extract(
                 transcript_text=transcript_text,
                 document_template=document_template,
                 context_notes=context_notes,
@@ -659,14 +684,18 @@ def extract_with_llm(
                 base_url=ollama_base_url or "http://127.0.0.1:11434",
                 frame_images=frame_images,
             )
-        return _openai_extract(
-            transcript_text=transcript_text,
-            document_template=document_template,
-            context_notes=context_notes,
-            api_key=api_key,
-            model=model,
-            frame_images=frame_images,
-        )
+        else:
+            result = _openai_extract(
+                transcript_text=transcript_text,
+                document_template=document_template,
+                context_notes=context_notes,
+                api_key=api_key,
+                model=model,
+                frame_images=frame_images,
+            )
+        if result is None:
+            return None, "Structured extraction returned no valid JSON."
+        return result, None
     except Exception as exc:
         logger.exception(
             "structured_extraction_failed provider=%s model=%s document_template=%s transcript_present=%s frame_count=%s",
@@ -676,4 +705,4 @@ def extract_with_llm(
             bool((transcript_text or "").strip()),
             len(frame_images),
         )
-        return None
+        return None, f"{type(exc).__name__}: {str(exc)[:500]}"

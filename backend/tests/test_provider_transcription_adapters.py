@@ -16,6 +16,7 @@ from app.providers.structured_extraction import (
     _normalize_extraction,
     _ollama_extract,
     _openai_extract,
+    extract_with_llm_detailed,
 )
 
 
@@ -422,3 +423,25 @@ def test_openai_extract_does_not_retry_non_transient_failures(monkeypatch):
 
     assert len(calls) == 1
     assert sleeps == []
+
+
+def test_extract_with_llm_detailed_returns_error_for_invalid_json(monkeypatch):
+    calls = []
+    responses = [{"choices": [{"message": {"content": "not json"}}]}]
+    monkeypatch.setattr(
+        "app.providers.structured_extraction.httpx.Client",
+        lambda *args, **kwargs: _FakeClient([_FakeResponse(responses[0])], calls),
+    )
+
+    result, error = extract_with_llm_detailed(
+        provider="openai",
+        transcript_text="Transcript body",
+        document_template="pdd",
+        context_notes=None,
+        api_key="test-key",
+        model="gpt-4.1",
+        frame_images=[],
+    )
+
+    assert result is None
+    assert error == "Structured extraction returned no valid JSON."

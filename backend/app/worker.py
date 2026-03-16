@@ -131,6 +131,7 @@ def process_job_async(job_id: str) -> None:
             "process_candidates": result.evidence.process_candidates,
             "confidence": result.evidence.confidence,
             "structured_extraction": result.evidence.structured_extraction,
+            "structured_extraction_error": getattr(result.evidence, "structured_extraction_error", None),
         }
         provider_execution = {
             "requested_provider": requested_provider,
@@ -223,6 +224,18 @@ def process_job_async(job_id: str) -> None:
             )
             review_notes.setdefault("assumptions", []).append(
                 "Primary provider failed. Re-run with your desired provider if provider-specific output is required."
+            )
+        structured_error = evidence_dict.get("structured_extraction_error")
+        if structured_error and not evidence_dict.get("structured_extraction"):
+            review_notes.setdefault("flags", []).append(
+                {
+                    "type": "structured_extraction_failed",
+                    "path": "provider_execution.structured_extraction",
+                    "message": structured_error,
+                }
+            )
+            review_notes.setdefault("assumptions", []).append(
+                "Structured extraction failed. Draft content may reflect safe fallback behavior and requires manual review."
             )
 
         update_job_metadata(

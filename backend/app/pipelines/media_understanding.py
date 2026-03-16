@@ -76,6 +76,7 @@ def build_media_understanding_payload(evidence: Dict, input_manifest: Optional[D
     process_candidates = evidence.get("process_candidates", [])
     frame_images = evidence.get("frame_images", []) or []
     structured_extraction = evidence.get("structured_extraction")
+    structured_extraction_error = evidence.get("structured_extraction_error")
     key_frames = select_key_frames(input_manifest=input_manifest, evidence=evidence)
 
     transcript_steps = _split_transcript_into_steps(transcript_text)
@@ -91,5 +92,6 @@ def build_media_understanding_payload(evidence: Dict, input_manifest: Optional[D
         "frame_images": frame_images,
         "merged_steps": merged_steps,
         "structured_extraction": structured_extraction,
+        "structured_extraction_error": structured_extraction_error,
         "confidence": confidence,
     }
