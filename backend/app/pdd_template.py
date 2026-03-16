@@ -307,6 +307,10 @@ def _replace_between(text: str, start_heading: str, end_heading: str, replacemen
     return pattern.sub(rf"\1{replacement_block}\n", text, count=1)
 
 
+def _collapse_duplicate_headings(text: str) -> str:
+    return re.sub(r"^(#{2,3}\s+[^\n]+)\n\1\n+", r"\1\n", text, flags=re.MULTILINE)
+
+
 def _section_bullets(items: list[str], fallback: str) -> str:
     if not items:
         return f"*   {fallback}"
@@ -704,6 +708,8 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
     roles = document.get("roles_and_responsibilities", []) if isinstance(document.get("roles_and_responsibilities"), list) else []
     revision_history = document.get("revision_history", []) if isinstance(document.get("revision_history"), list) else []
     sla_rows = document.get("sla_and_performance_targets", []) if isinstance(document.get("sla_and_performance_targets"), list) else []
+    custom_summary = document.get("custom_sop_summary", {}) if isinstance(document.get("custom_sop_summary"), dict) else {}
+    faq_items = document.get("faq_items", []) if isinstance(document.get("faq_items"), list) else []
 
     process_name = (
         str(doc_control.get("sop_title", "")).strip()
@@ -719,18 +725,7 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
         ) or "Needs Review"
     function_name = str(doc_control.get("department", "")).strip()
     if not function_name or function_name.lower() == "needs review":
-        function_name = (
-            str(tools[0].get("tool_system", "")).strip()
-            if tools and isinstance(tools[0], dict)
-            else ""
-        ) or (
-            str((prerequisites.get("system_access_required", [{}])[0] or {}).get("system", "")).strip()
-            if isinstance(prerequisites, dict) and prerequisites.get("system_access_required")
-            else ""
-        ) or (
-            str(steps[0].get("system", "")).strip()
-            if steps else ""
-        ) or "Needs Review"
+        function_name = "Needs Review"
     effective_date_value = str(doc_control.get("effective_date", "")).strip()
     effective_date = effective_date_value if effective_date_value and effective_date_value.lower() != "needs review" else date.today().strftime("%d-%b-%Y")
     document_status = str(doc_control.get("status", "")).strip() or "Draft"
@@ -740,14 +735,14 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
         frequency = str(input_docs[0].get("frequency", "")).strip() or "Needs Review"
     sla_text = "Needs Review"
     if sla_rows:
-        first_sla = sla_rows[0]
-        sla_text = f"{first_sla.get('kpi', 'KPI')}: {first_sla.get('target', 'Needs Review')}"
+        formatted = [f"{row.get('kpi', 'KPI')}: {row.get('target', 'Needs Review')}" for row in sla_rows[:2]]
+        sla_text = "; ".join(formatted)
 
-    suppliers = ", ".join(sorted({str(row.get("supplier", "")).strip() for row in sipoc if str(row.get("supplier", "")).strip()})) or "Needs Review"
-    inputs = ", ".join(sorted({str(row.get("input", "")).strip() for row in sipoc if str(row.get("input", "")).strip()})) or "Needs Review"
+    suppliers = ", ".join(custom_summary.get("suppliers", [])) or ", ".join(sorted({str(row.get("supplier", "")).strip() for row in sipoc if str(row.get("supplier", "")).strip()})) or "Needs Review"
+    inputs = ", ".join(custom_summary.get("inputs", [])) or ", ".join(sorted({str(row.get("input", "")).strip() for row in sipoc if str(row.get("input", "")).strip()})) or "Needs Review"
     processes = ", ".join([str(step.get("title", "")).strip() for step in steps if str(step.get("title", "")).strip()][:5]) or "Needs Review"
-    outputs = ", ".join(sorted({str(row.get("output", "")).strip() for row in sipoc if str(row.get("output", "")).strip()})) or "Needs Review"
-    customers = ", ".join(sorted({str(row.get("customer", "")).strip() for row in sipoc if str(row.get("customer", "")).strip()})) or "Needs Review"
+    outputs = ", ".join(custom_summary.get("outputs", [])) or ", ".join(sorted({str(row.get("output", "")).strip() for row in sipoc if str(row.get("output", "")).strip()})) or "Needs Review"
+    customers = ", ".join(custom_summary.get("customers", [])) or ", ".join(sorted({str(row.get("customer", "")).strip() for row in sipoc if str(row.get("customer", "")).strip()})) or "Needs Review"
 
     primary_role = roles[0] if roles else {}
     secondary_role = roles[1] if len(roles) > 1 else {}
@@ -800,7 +795,7 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
         "<Task 2>": str(steps[1].get("title", "Task 2")) if len(steps) > 1 else "Task 2",
         "<Task 3>": str(steps[2].get("title", "Task 3")) if len(steps) > 2 else "Task 3",
         "<Name>": owner_default,
-        "<email@domain>": "needs.review@example.com",
+        "<email@domain>": "Needs Review",
         "<Control #>": "C1",
     }
     replacements.update(
@@ -829,12 +824,12 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
         rendered = rendered.replace(needle, str(value))
 
     stakeholders_rows = [
-        f"| {idx} | {row.get('role', owner_default)} | {row.get('responsibility', 'Needs Review')} | needs.review@example.com |"
+        f"| {idx} | {row.get('role', owner_default)} | Needs Review | Needs Review |"
         for idx, row in enumerate(roles[:3], start=1)
     ] or [
-        f"| 1 | {owner_default} | Process Owner | needs.review@example.com |",
-        "| 2 | Needs Review | Reviewer | needs.review@example.com |",
-        "| 3 | Needs Review | Approver | needs.review@example.com |",
+        f"| 1 | {owner_default} | Needs Review | Needs Review |",
+        "| 2 | Needs Review | Needs Review | Needs Review |",
+        "| 3 | Needs Review | Needs Review | Needs Review |",
     ]
     stakeholders_block = "\n".join(
         [
@@ -867,11 +862,31 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
     )
     rendered = _replace_between(rendered, "### 1.2 Version History", "---", version_block)
 
+    def _match_role(step_actor: str, role_label: str) -> bool:
+        actor = str(step_actor or "").strip().lower()
+        role = str(role_label or "").strip().lower()
+        if not actor or not role or "needs review" in {actor, role}:
+            return False
+        if actor == role:
+            return True
+        actor_tokens = set(re.split(r"[^a-z0-9]+", actor))
+        role_tokens = set(re.split(r"[^a-z0-9]+", role))
+        actor_tokens.discard("")
+        role_tokens.discard("")
+        if actor in {"operator", "analyst", "user"} and actor in role_tokens:
+            return True
+        if actor_tokens and role_tokens and actor_tokens.issubset(role_tokens):
+            return True
+        return False
+
     raci_rows = []
     for idx in range(3):
         task = str(steps[idx].get("title", f"Task {idx + 1}")) if idx < len(steps) else f"Task {idx + 1}"
-        raci = ["R", "I", "A"] if idx == 0 else ["I", "R", "A"] if idx == 1 else ["C", "R", "I"]
-        raci_rows.append(f"| {task} | {raci[0]} | {raci[1]} | {raci[2]} |")
+        actor = str(steps[idx].get("actor", "")) if idx < len(steps) else ""
+        values = []
+        for role_label in role_labels:
+            values.append("R" if _match_role(actor, role_label) else "Needs Review")
+        raci_rows.append(f"| {task} | {values[0]} | {values[1]} | {values[2]} |")
     raci_block = "\n".join(
         [
             "| Task / Stakeholders | Role 1 | Role 2 | Role 3 |",
@@ -884,7 +899,7 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
     rendered = rendered.replace("Role 2", role_labels[1])
     rendered = rendered.replace("Role 3", role_labels[2])
 
-    process_steps_lines = ["## 3. Process Steps", ""]
+    process_steps_lines = []
     if steps:
         for idx, step in enumerate(steps, start=1):
             screenshot = step.get("screenshot") if isinstance(step.get("screenshot"), dict) else {}
@@ -905,6 +920,8 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
                     process_steps_lines.append(f"- Frame Reason: {screenshot.get('reason')}")
             else:
                 process_steps_lines.append("- Screenshot: Not available")
+            if str(step.get("note", "")).strip():
+                process_steps_lines.append(f"- Note: {step.get('note')}")
             process_steps_lines.append("")
     else:
         process_steps_lines.extend(
@@ -938,15 +955,22 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
     )
     rendered = _replace_between(rendered, "## 4. Process Exceptions", "## 5. Process Controls", exception_block)
 
-    controls_rows = [
-        "| C{idx} | {step_name} | {desc} | {ctype} | Detective |".format(
-            idx=idx + 1,
-            step_name=(steps[idx].get("title", f"Step {idx + 1}") if idx < len(steps) else f"Step {idx + 1}"),
-            desc=str(ctrl.get("description", "Needs Review")),
-            ctype=("System" if "system" in str(ctrl.get("type", "")).lower() else "Manual"),
+    controls_rows = []
+    for idx, ctrl in enumerate((controls.get("controls", []) if isinstance(controls, dict) else [])[:3], start=1):
+        type_text = str(ctrl.get("type", "")).strip().lower()
+        modality = "System" if "system" in type_text else "Manual"
+        control_nature = "Preventive" if "preventive" in type_text else "Detective"
+        controls_rows.append(
+            "| C{idx} | {step_name} | {desc} | {ctype} | {nature} |".format(
+                idx=idx,
+                step_name=(str(ctrl.get("step_name", "")).strip() or (steps[idx - 1].get("title", f"Step {idx}") if idx - 1 < len(steps) else f"Step {idx}")),
+                desc=str(ctrl.get("description", "Needs Review")),
+                ctype=modality,
+                nature=control_nature,
+            )
         )
-        for idx, ctrl in enumerate((controls.get("controls", []) if isinstance(controls, dict) else [])[:3])
-    ] or ["| C1 | Step 1 | Needs Review | Manual | Detective |"]
+    if not controls_rows:
+        controls_rows = ["| C1 | Step 1 | Needs Review | Manual | Detective |"]
     controls_block = "\n".join(
         [
             "| Control # | Process Step | Control Description | Manual / System | Preventive / Detective |",
@@ -957,14 +981,21 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
     rendered = _replace_between(rendered, "## 5. Process Controls", "## 6. Approval Matrix", controls_block)
 
     approval_rows = [
-        f"| {role_labels[0]} | Review |",
-        f"| {role_labels[1]} | Approval |",
-        f"| {role_labels[2]} | Final Sign-off |",
+        f"| {role_labels[0]} | Needs Review |",
+        f"| {role_labels[1]} | Needs Review |",
+        f"| {role_labels[2]} | Needs Review |",
     ]
     approval_block = "\n".join(["| Role | Responsibility |", "|------|----------------|", *approval_rows])
     rendered = _replace_between(rendered, "## 6. Approval Matrix", "## 7. Appendix", approval_block)
 
     faq_rows = [
+        "| {idx} | {topic} | {tip} |".format(
+            idx=idx + 1,
+            topic=row.get("topic", "Needs Review"),
+            tip=row.get("tip", "Needs Review"),
+        )
+        for idx, row in enumerate(faq_items[:3])
+    ] or [
         "| {idx} | {topic} | {tip} |".format(
             idx=idx + 1,
             topic=row.get("training_module", "Needs Review"),
@@ -973,8 +1004,6 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
         for idx, row in enumerate(training_rows[:3])
     ] or [
         "| 1 | Process overview | Needs Review |",
-        "| 2 | Exception handling | Needs Review |",
-        "| 3 | Controls checklist | Needs Review |",
     ]
     faq_block = "\n".join(["| # | Topic | Top Tips |", "|---|-------|----------|", *faq_rows])
     rendered = _replace_between(rendered, "### Frequently Asked Questions (FAQs)", "---", faq_block)
@@ -983,6 +1012,7 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
     rendered = re.sub(r"\n\*\*Notes for AI Usage\*\*[\s\S]*$", "", rendered, flags=re.MULTILINE)
     # Safety net: avoid leaking unresolved placeholder tokens.
     rendered = re.sub(r"<[^>\n]+>", "Needs Review", rendered)
+    rendered = _collapse_duplicate_headings(rendered)
     return rendered.strip() + "\n"
 
 
