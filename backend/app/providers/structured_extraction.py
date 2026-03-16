@@ -1,11 +1,32 @@
 import json
 import re
 import base64
+import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import httpx
 
+MAX_EXTRACTION_OUTPUT_TOKENS = 4096
+MAX_EXTRACTION_RETRIES = 2
+SYSTEM_PROMPT = """
+You extract business process structure from evidence.
+Return valid JSON only.
+Extract the current-state process only.
+Do not invent roles, ownership, or unsupported facts.
+Do not include future-state recommendations.
+Preserve factual fields as structured data whenever possible.
+Set confidence to reflect evidence strength.
+""".strip()
+
+_TEMPLATE_HINTS = {
+    "pdd": "Document template hint: emphasize process steps, roles, systems, and SIPOC coverage.",
+    "sop": "Document template hint: emphasize controls, exceptions, quality checks, SLA commitments, and training context.",
+    "custom_sop": (
+        "Document template hint: emphasize controls, exceptions, quality checks, SLA commitments, training context, "
+        "automation opportunities, and FAQ-oriented supporting context."
+    ),
+}
 
 PROMPT_TEMPLATE = """
 You are a business process analyst.
@@ -83,9 +104,17 @@ Return ONLY valid JSON with this schema:
 
 Rules:
 - Consolidate transcript noise into business-ready steps.
+- Use the smallest set of distinct current-state steps that still preserves real handoffs, decisions, or system changes.
+- Do not split adjacent activities into separate steps when they share the same actor and system and do not introduce a materially different input or output.
+- Keep process_steps, effort_data, and sipoc aligned to the same current-state step model.
 - Remove timestamps/speaker labels from step action text.
 - Include approvals, SLAs, exception paths, controls, and completion criteria where present.
 - Extract any stated effort times, volumes, error rates, and SLA commitments as structured data fields, not narrative-only text.
+- Add an effort_data row for every process step that has transcript-supported timing evidence.
+- If one stated duration clearly covers a grouped activity, attach it to the corresponding current-state step instead of leaving the step blank.
+- Do not invent effort values when the transcript gives no timing support.
+- Create one SIPOC row per process step when possible, using the exact process step title from process_steps.
+- Keep supplier and customer values normalized to a single role/team label per row; avoid duplicate SIPOC rows and avoid comma-joined duplicate actors.
 - Extract the current-state process only; do not mix future-state recommendations into steps, exceptions, controls, or governance facts.
 - Do not copy facilitator questions or workshop quotes verbatim into structured fields when a concise paraphrase is possible.
 - Do not invent approvers, contact details, or ownership that are not supported by the transcript.
@@ -93,6 +122,32 @@ Rules:
 
 __TRANSCRIPT__
 """.strip()
+
+
+def _template_hint(document_template: str) -> str:
+    return _TEMPLATE_HINTS.get(str(document_template or "pdd").strip().lower(), _TEMPLATE_HINTS["pdd"])
+
+
+def _should_retry_extraction(exc: Exception) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in {429, 502, 503}
+    if isinstance(exc, httpx.TimeoutException):
+        return True
+    if isinstance(exc, httpx.TransportError):
+        return "connection reset" in str(exc).lower()
+    return False
+
+
+def _run_with_transient_retries(operation: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
+    delay_seconds = 0.5
+    for attempt in range(MAX_EXTRACTION_RETRIES + 1):
+        try:
+            return operation()
+        except Exception as exc:
+            if attempt >= MAX_EXTRACTION_RETRIES or not _should_retry_extraction(exc):
+                raise
+            time.sleep(delay_seconds)
+            delay_seconds *= 2
 
 
 def _extract_json(text: str) -> Optional[Dict[str, Any]]:
@@ -119,6 +174,21 @@ def _as_list(value: Any) -> list[str]:
     return []
 
 
+def _dedupe_strings(values: list[str]) -> list[str]:
+    deduped = []
+    seen = set()
+    for value in values:
+        cleaned = str(value).strip()
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(cleaned)
+    return deduped
+
+
 def _as_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
@@ -132,21 +202,21 @@ def _normalize_operational_facts(payload: Dict[str, Any]) -> Dict[str, Any]:
         facts = {}
     return {
         "frequency": str(facts.get("frequency", "")).strip(),
-        "volumes_or_frequency": _as_list(facts.get("volumes_or_frequency")),
-        "sla_targets": _as_list(facts.get("sla_targets")),
-        "routing_rules": _as_list(facts.get("routing_rules")),
-        "control_requirements": _as_list(facts.get("control_requirements")),
-        "governance_notes": _as_list(facts.get("governance_notes")),
-        "quantified_pain_points": _as_list(facts.get("quantified_pain_points")),
-        "systems": _as_list(facts.get("systems")),
-        "teams": _as_list(facts.get("teams")),
-        "exception_details": _as_list(facts.get("exception_details")),
+        "volumes_or_frequency": _dedupe_strings(_as_list(facts.get("volumes_or_frequency"))),
+        "sla_targets": _dedupe_strings(_as_list(facts.get("sla_targets"))),
+        "routing_rules": _dedupe_strings(_as_list(facts.get("routing_rules"))),
+        "control_requirements": _dedupe_strings(_as_list(facts.get("control_requirements"))),
+        "governance_notes": _dedupe_strings(_as_list(facts.get("governance_notes"))),
+        "quantified_pain_points": _dedupe_strings(_as_list(facts.get("quantified_pain_points"))),
+        "systems": _dedupe_strings(_as_list(facts.get("systems"))),
+        "teams": _dedupe_strings(_as_list(facts.get("teams"))),
+        "exception_details": _dedupe_strings(_as_list(facts.get("exception_details"))),
     }
 
 
 def _normalize_effort_data(payload: Dict[str, Any]) -> list[Dict[str, Any]]:
     rows = payload.get("effort_data", [])
-    normalized = []
+    normalized_by_step: dict[int, Dict[str, Any]] = {}
     if isinstance(rows, list):
         for row in rows:
             if not isinstance(row, dict):
@@ -156,14 +226,12 @@ def _normalize_effort_data(payload: Dict[str, Any]) -> list[Dict[str, Any]]:
             effort_max = _as_int(row.get("effort_minutes_max"), 0)
             if step_no <= 0 or effort_min <= 0 or effort_max <= 0:
                 continue
-            normalized.append(
-                {
-                    "step_no": step_no,
-                    "effort_minutes_min": min(effort_min, effort_max),
-                    "effort_minutes_max": max(effort_min, effort_max),
-                }
-            )
-    return normalized
+            normalized_by_step[step_no] = {
+                "step_no": step_no,
+                "effort_minutes_min": min(effort_min, effort_max),
+                "effort_minutes_max": max(effort_min, effort_max),
+            }
+    return [normalized_by_step[key] for key in sorted(normalized_by_step)]
 
 
 def _normalize_decision_rules(payload: Dict[str, Any]) -> list[Dict[str, Any]]:
@@ -212,6 +280,41 @@ def _normalize_pain_points(payload: Dict[str, Any]) -> list[Dict[str, Any]]:
     return normalized
 
 
+def _normalize_sipoc(payload: Dict[str, Any], normalized_steps: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    step_titles = {
+        str(step.get("title", "")).strip().lower(): str(step.get("title", "")).strip()
+        for step in normalized_steps
+        if str(step.get("title", "")).strip()
+    }
+    rows = payload.get("sipoc", [])
+    normalized = []
+    seen = set()
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            supplier = str(row.get("supplier", "")).strip() or "upstream_supplier"
+            input_ = str(row.get("input", "")).strip() or "process input"
+            process_step_raw = str(row.get("process_step", "")).strip()
+            process_step = step_titles.get(process_step_raw.lower(), process_step_raw or "unspecified")
+            output = str(row.get("output", "")).strip() or "unspecified"
+            customer = str(row.get("customer", "")).strip() or "downstream_customer"
+            key = (supplier.lower(), input_.lower(), process_step.lower(), output.lower(), customer.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(
+                {
+                    "supplier": supplier,
+                    "input": input_,
+                    "process_step": process_step,
+                    "output": output,
+                    "customer": customer,
+                }
+            )
+    return normalized
+
+
 def _normalize_extraction(payload: Dict[str, Any]) -> Dict[str, Any]:
     steps_in = payload.get("process_steps", [])
     normalized_steps = []
@@ -235,27 +338,7 @@ def _normalize_extraction(payload: Dict[str, Any]) -> Dict[str, Any]:
             )
     normalized_steps = sorted(normalized_steps, key=lambda s: s["step_no"])
 
-    sipoc_in = payload.get("sipoc", [])
-    sipoc = []
-    if isinstance(sipoc_in, list):
-        for row in sipoc_in:
-            if not isinstance(row, dict):
-                continue
-            supplier = str(row.get("supplier", "")).strip()
-            input_ = str(row.get("input", "")).strip()
-            process_step = str(row.get("process_step", "")).strip()
-            output = str(row.get("output", "")).strip()
-            customer = str(row.get("customer", "")).strip()
-            if supplier or input_ or process_step or output or customer:
-                sipoc.append(
-                    {
-                        "supplier": supplier or "upstream_supplier",
-                        "input": input_ or "process input",
-                        "process_step": process_step or "unspecified",
-                        "output": output or "unspecified",
-                        "customer": customer or "downstream_customer",
-                    }
-                )
+    sipoc = _normalize_sipoc(payload, normalized_steps)
 
     confidence_raw = payload.get("confidence", 0.7)
     try:
@@ -287,16 +370,24 @@ def _normalize_extraction(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _compose_prompt_text(transcript_text: str, context_notes: Optional[str]) -> str:
+def _compose_prompt_text(
+    transcript_text: str,
+    document_template: str,
+    context_notes: Optional[str],
+    include_system_prompt: bool = False,
+) -> str:
     transcript_block = transcript_text[:120000] if transcript_text else "No transcript provided."
+    sections = []
+    if include_system_prompt:
+        sections.append(f"Invariant extraction policy:\n{SYSTEM_PROMPT}")
+    sections.append(_template_hint(document_template))
     if context_notes and str(context_notes).strip():
-        return (
+        sections.append(
             "Additional context provided by user:\n"
-            f"{str(context_notes).strip()[:2000]}\n\n"
-            "Source transcript:\n"
-            f"{transcript_block}"
+            f"{str(context_notes).strip()[:2000]}"
         )
-    return f"Source transcript:\n{transcript_block}"
+    sections.append(f"Source transcript:\n{transcript_block}")
+    return "\n\n".join(sections)
 
 
 def _frame_context_lines(frame_images: list[dict[str, Any]]) -> str:
@@ -314,12 +405,21 @@ def _google_extract(
     transcript_text: str,
     api_key: str,
     model: str,
+    document_template: str,
     frame_images: Optional[list[dict[str, Any]]] = None,
     context_notes: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     frame_images = frame_images or []
-    prompt = PROMPT_TEMPLATE.replace("__TRANSCRIPT__", _compose_prompt_text(transcript_text, context_notes))
+    prompt = PROMPT_TEMPLATE.replace(
+        "__TRANSCRIPT__",
+        _compose_prompt_text(
+            transcript_text,
+            document_template=document_template,
+            context_notes=context_notes,
+            include_system_prompt=True,
+        ),
+    )
     frame_ctx = _frame_context_lines(frame_images)
     if frame_ctx:
         prompt = f"{prompt}\n\n{frame_ctx}"
@@ -336,11 +436,22 @@ def _google_extract(
                 }
             }
         )
-    body = {"contents": [{"parts": parts}], "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}}
-    with httpx.Client(timeout=60.0) as client:
-        response = client.post(url, json=body)
-        response.raise_for_status()
-        data = response.json()
+    body = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {
+            "temperature": 0.1,
+            "responseMimeType": "application/json",
+            "maxOutputTokens": MAX_EXTRACTION_OUTPUT_TOKENS,
+        },
+    }
+
+    def _request() -> Dict[str, Any]:
+        with httpx.Client(timeout=60.0) as client:
+            response = client.post(url, json=body)
+            response.raise_for_status()
+            return response.json()
+
+    data = _run_with_transient_retries(_request)
     text = (
         data.get("candidates", [{}])[0]
         .get("content", {})
@@ -355,13 +466,17 @@ def _openai_extract(
     transcript_text: str,
     api_key: str,
     model: str,
+    document_template: str,
     frame_images: Optional[list[dict[str, Any]]] = None,
     context_notes: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     url = "https://api.openai.com/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}"}
     frame_images = frame_images or []
-    prompt = PROMPT_TEMPLATE.replace("__TRANSCRIPT__", _compose_prompt_text(transcript_text, context_notes))
+    prompt = PROMPT_TEMPLATE.replace(
+        "__TRANSCRIPT__",
+        _compose_prompt_text(transcript_text, document_template=document_template, context_notes=context_notes),
+    )
     frame_ctx = _frame_context_lines(frame_images)
     if frame_ctx:
         prompt = f"{prompt}\n\n{frame_ctx}"
@@ -375,16 +490,21 @@ def _openai_extract(
     body = {
         "model": model,
         "temperature": 0.1,
+        "max_completion_tokens": MAX_EXTRACTION_OUTPUT_TOKENS,
         "response_format": {"type": "json_object"},
         "messages": [
-            {"role": "system", "content": "You extract business process structure and return strict JSON only."},
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": content},
         ],
     }
-    with httpx.Client(timeout=60.0) as client:
-        response = client.post(url, headers=headers, json=body)
-        response.raise_for_status()
-        data = response.json()
+
+    def _request() -> Dict[str, Any]:
+        with httpx.Client(timeout=60.0) as client:
+            response = client.post(url, headers=headers, json=body)
+            response.raise_for_status()
+            return response.json()
+
+    data = _run_with_transient_retries(_request)
     text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
     parsed = _extract_json(text)
     return _normalize_extraction(parsed) if parsed else None
@@ -395,6 +515,7 @@ def _azure_openai_extract(
     api_key: str,
     deployment: str,
     endpoint: str,
+    document_template: str,
     frame_images: Optional[list[dict[str, Any]]] = None,
     context_notes: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
@@ -403,7 +524,10 @@ def _azure_openai_extract(
     url = f"{base}/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}"}
     frame_images = frame_images or []
-    prompt = PROMPT_TEMPLATE.replace("__TRANSCRIPT__", _compose_prompt_text(transcript_text, context_notes))
+    prompt = PROMPT_TEMPLATE.replace(
+        "__TRANSCRIPT__",
+        _compose_prompt_text(transcript_text, document_template=document_template, context_notes=context_notes),
+    )
     frame_ctx = _frame_context_lines(frame_images)
     if frame_ctx:
         prompt = f"{prompt}\n\n{frame_ctx}"
@@ -417,16 +541,21 @@ def _azure_openai_extract(
     body = {
         "model": deployment,
         "temperature": 0.1,
+        "max_completion_tokens": MAX_EXTRACTION_OUTPUT_TOKENS,
         "response_format": {"type": "json_object"},
         "messages": [
-            {"role": "system", "content": "You extract business process structure and return strict JSON only."},
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": content},
         ],
     }
-    with httpx.Client(timeout=60.0) as client:
-        response = client.post(url, headers=headers, json=body)
-        response.raise_for_status()
-        data = response.json()
+
+    def _request() -> Dict[str, Any]:
+        with httpx.Client(timeout=60.0) as client:
+            response = client.post(url, headers=headers, json=body)
+            response.raise_for_status()
+            return response.json()
+
+    data = _run_with_transient_retries(_request)
     text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
     parsed = _extract_json(text)
     return _normalize_extraction(parsed) if parsed else None
@@ -436,12 +565,21 @@ def _ollama_extract(
     transcript_text: str,
     model: str,
     base_url: str,
+    document_template: str,
     frame_images: Optional[list[dict[str, Any]]] = None,
     context_notes: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     url = f"{base_url.rstrip('/')}/api/generate"
     frame_images = frame_images or []
-    prompt = PROMPT_TEMPLATE.replace("__TRANSCRIPT__", _compose_prompt_text(transcript_text, context_notes))
+    prompt = PROMPT_TEMPLATE.replace(
+        "__TRANSCRIPT__",
+        _compose_prompt_text(
+            transcript_text,
+            document_template=document_template,
+            context_notes=context_notes,
+            include_system_prompt=True,
+        ),
+    )
     frame_ctx = _frame_context_lines(frame_images)
     if frame_ctx:
         prompt = f"{prompt}\n\n{frame_ctx}"
@@ -457,12 +595,16 @@ def _ollama_extract(
         "images": images,
         "stream": False,
         "format": "json",
-        "options": {"temperature": 0.1},
+        "options": {"temperature": 0.1, "num_predict": MAX_EXTRACTION_OUTPUT_TOKENS},
     }
-    with httpx.Client(timeout=120.0) as client:
-        response = client.post(url, json=body)
-        response.raise_for_status()
-        data = response.json()
+
+    def _request() -> Dict[str, Any]:
+        with httpx.Client(timeout=120.0) as client:
+            response = client.post(url, json=body)
+            response.raise_for_status()
+            return response.json()
+
+    data = _run_with_transient_retries(_request)
     text = data.get("response", "")
     parsed = _extract_json(text)
     return _normalize_extraction(parsed) if parsed else None
@@ -471,6 +613,7 @@ def _ollama_extract(
 def extract_with_llm(
     provider: str,
     transcript_text: str,
+    document_template: str,
     context_notes: Optional[str],
     api_key: Optional[str],
     model: str,
@@ -484,12 +627,20 @@ def extract_with_llm(
             return None
     try:
         if provider == "google":
-            return _google_extract(transcript_text=transcript_text, context_notes=context_notes, api_key=api_key, model=model, frame_images=frame_images)
+            return _google_extract(
+                transcript_text=transcript_text,
+                document_template=document_template,
+                context_notes=context_notes,
+                api_key=api_key,
+                model=model,
+                frame_images=frame_images,
+            )
         if provider == "azure_openai":
             if not azure_endpoint:
                 return None
             return _azure_openai_extract(
                 transcript_text=transcript_text,
+                document_template=document_template,
                 context_notes=context_notes,
                 api_key=api_key,
                 deployment=model,
@@ -499,11 +650,19 @@ def extract_with_llm(
         if provider == "ollama":
             return _ollama_extract(
                 transcript_text=transcript_text,
+                document_template=document_template,
                 context_notes=context_notes,
                 model=model,
                 base_url=ollama_base_url or "http://127.0.0.1:11434",
                 frame_images=frame_images,
             )
-        return _openai_extract(transcript_text=transcript_text, context_notes=context_notes, api_key=api_key, model=model, frame_images=frame_images)
+        return _openai_extract(
+            transcript_text=transcript_text,
+            document_template=document_template,
+            context_notes=context_notes,
+            api_key=api_key,
+            model=model,
+            frame_images=frame_images,
+        )
     except Exception:
         return None

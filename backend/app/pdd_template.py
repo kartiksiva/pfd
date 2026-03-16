@@ -877,6 +877,10 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
     )
     rendered = _replace_between(rendered, "### 1.2 Version History", "---", version_block)
 
+    objective_text = str(document.get("purpose", "Needs Review")).strip() or "Needs Review"
+    objective_block = f"- {objective_text}"
+    rendered = _replace_between(rendered, "### 2.2 Process Objective", "---", objective_block)
+
     def _match_role(step_actor: str, role_label: str) -> bool:
         actor = str(step_actor or "").strip().lower()
         role = str(role_label or "").strip().lower()

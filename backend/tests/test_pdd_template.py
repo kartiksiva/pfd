@@ -465,5 +465,33 @@ def test_render_custom_sop_markdown_preserves_grounded_roles_and_scope(monkeypat
     assert "| 1 | Complaint Resolution Analyst | Needs Review | Needs Review |" in md
     assert "| 2 | Customer Service Analyst | Needs Review | Needs Review |" in md
     assert "| 3 | Compliance Team | Needs Review | Needs Review |" in md
-    assert "through any channel and ends when the complaint is validated, categorized, and assigned to a resolution team." in md
+    assert "### 2.2 Process Objective\n- To receive, validate, categorize, and assign incoming customer complaints" in md
     assert "closure" not in md.lower()
+
+
+def test_render_custom_sop_markdown_uses_only_purpose_in_objective_section(monkeypatch):
+    monkeypatch.delenv("CUSTOM_SOP_TEMPLATE_PATH", raising=False)
+    md = render_custom_sop_markdown(
+        document={
+            "document_control": {
+                "sop_title": "Customer Complaint Intake and Resolution Triage",
+                "department": "Customer Service",
+                "process_owner": "Complaint Resolution Analyst",
+                "version": "1.0",
+                "effective_date": "16-Mar-2026",
+                "status": "Draft",
+            },
+            "purpose": "To receive, validate, categorize, and assign incoming customer complaints to the appropriate resolution team in a timely and compliant manner.",
+            "scope": {"in_scope": ["Complaint intake, categorization, assignment, and tracking updates."]},
+            "process_overview": {"flow_summary": "Receive -> Validate -> Categorize -> Assign"},
+            "steps": [{"title": "Complaint Intake", "actor": "Complaint Resolution Analyst"}],
+            "roles_and_responsibilities": [{"role": "Complaint Resolution Analyst"}],
+            "exception_handling": {"exception_matrix": []},
+            "controls_and_compliance": {"controls": []},
+        },
+        sipoc=[],
+    )
+    objective_section = md.split("### 2.2 Process Objective", 1)[1].split("---", 1)[0]
+    assert "To receive, validate, categorize, and assign incoming customer complaints" in objective_section
+    assert "Complaint intake, categorization, assignment, and tracking updates." not in objective_section
+    assert "Ensure consistent execution with controls and exception handling." not in objective_section

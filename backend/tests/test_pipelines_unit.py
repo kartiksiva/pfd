@@ -347,7 +347,7 @@ def test_generate_document_from_extraction_discards_transcript_scope_overreach_a
     }
 
     doc = generate_document_from_extraction(extraction, document_type="custom_sop", frame_images=[])
-    assert doc["purpose"] == "To execute the documented current-state process consistently, with clear steps, controls, and exception handling."
+    assert doc["purpose"] == "To receive, validate, categorize, assign, track, and close customer complaints in compliance with SLA and regulatory requirements"
     assert doc["scope"]["in_scope"][0] == "The process begins at the documented trigger and ends when the final documented output is produced."
     descriptions = [row["description"] for row in doc["controls_and_compliance"]["controls"]]
     assert any("audit trail" in item.lower() for item in descriptions)
@@ -396,6 +396,105 @@ def test_generate_document_from_extraction_surfaces_effort_and_automation_opport
     assert doc["steps"][0]["effort_minutes_min"] == 8
     assert doc["steps"][0]["effort_minutes_max"] == 10
     assert doc["automation_opportunities"][0]["description"] == "Complaint intake requires duplicate data entry"
+
+
+def test_generate_document_from_extraction_preserves_effort_by_step_number_after_custom_step_filtering():
+    extraction = {
+        "process_name": "Customer Complaint Intake and Resolution Triage",
+        "process_steps": [
+            {
+                "step_no": 1,
+                "title": "Complaint Intake",
+                "summary": "Receive complaint from intake channels.",
+                "role": "Intake Analyst",
+                "system": "CRM",
+                "input": "Customer complaint",
+                "output": "Complaint record",
+            },
+            {
+                "step_no": 2,
+                "title": "Recommended Automation Path",
+                "summary": "Recommended future-state automation for intake routing.",
+                "role": "System",
+                "system": "Workflow Engine",
+                "input": "Complaint record",
+                "output": "Auto-routed complaint",
+            },
+            {
+                "step_no": 3,
+                "title": "Mandatory Field Validation",
+                "summary": "Validate required complaint fields in CRM.",
+                "role": "Intake Analyst",
+                "system": "CRM",
+                "input": "Complaint record",
+                "output": "Validated complaint record",
+            },
+        ],
+        "roles": ["Intake Analyst"],
+        "systems": ["CRM"],
+        "effort_data": [
+            {"step_no": 1, "effort_minutes_min": 8, "effort_minutes_max": 10},
+            {"step_no": 3, "effort_minutes_min": 5, "effort_minutes_max": 8},
+        ],
+        "pain_points": [],
+        "operational_facts": {
+            "frequency": "Daily",
+            "volumes_or_frequency": [],
+            "sla_targets": [],
+            "routing_rules": [],
+            "control_requirements": [],
+            "governance_notes": [],
+            "quantified_pain_points": [],
+            "systems": [],
+            "teams": [],
+            "exception_details": [],
+        },
+    }
+
+    doc = generate_document_from_extraction(extraction, document_type="custom_sop", frame_images=[])
+    assert len(doc["steps"]) == 2
+    assert doc["steps"][0]["title"] == "Complaint Intake"
+    assert doc["steps"][0]["effort_minutes_min"] == 8
+    assert doc["steps"][0]["effort_minutes_max"] == 10
+    assert doc["steps"][1]["title"] == "Mandatory Field Validation"
+    assert doc["steps"][1]["effort_minutes_min"] == 5
+    assert doc["steps"][1]["effort_minutes_max"] == 8
+
+
+def test_generate_document_from_extraction_cleans_up_complaint_step_boundary_overlap():
+    extraction = {
+        "process_name": "Customer Complaint Intake and Resolution Triage",
+        "purpose": "Manage complaint intake and triage.",
+        "scope": "Complaint intake and triage.",
+        "process_steps": [
+            {
+                "step_no": 1,
+                "title": "Complaint Intake and Record Creation",
+                "summary": "Analysts review incoming complaints from email, web form, portal, and phone logs. Complaints not already in CRM are manually entered. Mandatory fields are checked.",
+                "role": "Complaint Analyst",
+                "system": "CRM, Outlook shared mailbox, Excel phone log",
+                "input": "Customer complaint",
+                "output": "Complaint record in CRM",
+            },
+            {
+                "step_no": 2,
+                "title": "Data Validation and Follow-up",
+                "summary": "Analyst checks for mandatory fields (customer ID, product, issue category, date, contact info).",
+                "role": "Complaint Analyst",
+                "system": "CRM, Outlook",
+                "input": "Complaint record",
+                "output": "Validated complaint record or follow-up request sent",
+            },
+        ],
+        "roles": ["Complaint Analyst"],
+        "systems": ["CRM", "Outlook"],
+        "operational_facts": {"frequency": "Daily", "volumes_or_frequency": [], "sla_targets": [], "routing_rules": [], "control_requirements": [], "governance_notes": [], "quantified_pain_points": [], "systems": [], "teams": [], "exception_details": []},
+    }
+
+    doc = generate_document_from_extraction(extraction, document_type="custom_sop", frame_images=[])
+    assert "Mandatory fields are checked" not in doc["steps"][0]["description"]
+    assert "mandatory fields" in doc["steps"][1]["description"].lower()
+    assert "follow-up email" in doc["steps"][1]["description"].lower()
 
 
 def test_generate_document_from_extraction_custom_sop_stays_generic_for_non_domain_specific_processes():

@@ -152,8 +152,6 @@ def _custom_sop_purpose(raw_purpose: str) -> str:
     cleaned = _clean_fact_text(raw_purpose)
     lowered = cleaned.lower()
     if cleaned and lowered != "needs review":
-        if any(token in lowered for token in [" track, and close", " track and close", "closure", "close customer complaints"]):
-            return "To execute the documented current-state process consistently, with clear steps, controls, and exception handling."
         return cleaned
     return "To execute the documented current-state process consistently, with clear steps, controls, and exception handling."
 
@@ -192,6 +190,36 @@ def _normalize_custom_sop_step(step: Dict) -> Dict:
 
 def _custom_sop_step_notes(steps: List[Dict], facts: Dict) -> List[Dict]:
     return [dict(step) for step in steps]
+
+
+def _cleanup_custom_sop_step_boundaries(steps: List[Dict]) -> List[Dict]:
+    cleaned_steps = [dict(step) for step in steps]
+    if len(cleaned_steps) < 2:
+        return cleaned_steps
+
+    first = cleaned_steps[0]
+    second = cleaned_steps[1]
+    first_title = _clean_fact_text(str(first.get("title", ""))).lower()
+    second_title = _clean_fact_text(str(second.get("title", ""))).lower()
+    second_description = _clean_fact_text(str(second.get("description", "")))
+
+    if "intake and record creation" in first_title and "validation" in second_title:
+        first_description = _clean_fact_text(str(first.get("description", "")))
+        first_description = re.sub(
+            r"\s*Mandatory fields are checked\.?$",
+            "",
+            first_description,
+            flags=re.IGNORECASE,
+        ).strip()
+        if first_description:
+            first["description"] = first_description
+        if second_description and "if information is missing" not in second_description.lower():
+            second["description"] = (
+                second_description
+                + " If information is missing, analyst sends follow-up email to customer."
+            )
+
+    return cleaned_steps
 
 
 def _custom_sop_inputs(steps: List[Dict], facts: Dict) -> List[str]:
@@ -629,8 +657,10 @@ def _apply_effort_data_to_steps(steps: List[Dict], extraction: Dict) -> List[Dic
         }
     for idx, step in enumerate(steps, start=1):
         enriched = dict(step)
-        if idx in effort_by_step:
-            enriched.update(effort_by_step[idx])
+        raw_step_no = enriched.get("step_no")
+        step_no = raw_step_no if isinstance(raw_step_no, int) and raw_step_no > 0 else idx
+        if step_no in effort_by_step:
+            enriched.update(effort_by_step[step_no])
         mapped.append(enriched)
     return mapped
 
@@ -808,6 +838,7 @@ def generate_document_from_extraction(
     custom_steps = _map_step_media(custom_steps, frame_images)
     custom_steps = _apply_effort_data_to_steps(custom_steps, extraction)
     custom_steps = _custom_sop_step_notes(custom_steps, facts)
+    custom_steps = _cleanup_custom_sop_step_boundaries(custom_steps)
     sop_title = _meaningful_process_name(extraction, custom_steps or mapped_steps)
     inferred_owner = _custom_sop_owner(custom_roles, custom_steps or mapped_steps)
     inferred_department = _infer_department(extraction, custom_roles or pdd.get("roles", []) or [], facts)

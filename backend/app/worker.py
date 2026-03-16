@@ -74,7 +74,12 @@ def process_job_async(job_id: str) -> None:
         primary_error: Optional[str] = None
         execution_provider = requested_provider
         try:
-            result = adapter.run(job.input_manifest, processing_profile=job.processing_profile, context_notes=job.context_notes)
+            result = adapter.run(
+                job.input_manifest,
+                processing_profile=job.processing_profile,
+                document_template=job.document_template,
+                context_notes=job.context_notes,
+            )
             execution_provider = result.evidence.provider or requested_provider
         except Exception as primary_exc:
             fallback_used = True
@@ -93,7 +98,12 @@ def process_job_async(job_id: str) -> None:
             fallback_provider = _fallback_provider(requested_provider)
             fallback = get_provider_adapter(fallback_provider)
             try:
-                result = fallback.run(job.input_manifest, processing_profile=job.processing_profile, context_notes=job.context_notes)
+                result = fallback.run(
+                    job.input_manifest,
+                    processing_profile=job.processing_profile,
+                    document_template=job.document_template,
+                    context_notes=job.context_notes,
+                )
                 execution_provider = result.evidence.provider or fallback_provider
             except Exception as fallback_exc:
                 _set_failure(

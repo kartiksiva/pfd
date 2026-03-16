@@ -81,6 +81,7 @@ class AzureOpenAIAdapter(ProviderAdapter):
         self,
         input_manifest: Dict,
         transcript_text: str,
+        document_template: str = "pdd",
         context_notes: str = None,
         processing_profile: str = "balanced",
         use_full_media: bool = False,
@@ -116,6 +117,7 @@ class AzureOpenAIAdapter(ProviderAdapter):
                 structured = extract_with_llm(
                     provider=self.provider_name,
                     transcript_text=transcript_text,
+                    document_template=document_template,
                     context_notes=context_notes,
                     api_key=settings.azure_openai_api_key,
                     model=self.resolve_model_plan()["generation_model"],
