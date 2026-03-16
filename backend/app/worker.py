@@ -132,6 +132,7 @@ def process_job_async(job_id: str) -> None:
             "confidence": result.evidence.confidence,
             "structured_extraction": result.evidence.structured_extraction,
             "structured_extraction_error": getattr(result.evidence, "structured_extraction_error", None),
+            "structured_extraction_raw_preview": getattr(result.evidence, "structured_extraction_raw_preview", None),
         }
         provider_execution = {
             "requested_provider": requested_provider,

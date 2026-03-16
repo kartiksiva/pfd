@@ -131,6 +131,7 @@ def test_fallback_success_is_visible_in_review_notes(monkeypatch):
                 confidence = 0.85
                 structured_extraction = None
                 structured_extraction_error = None
+                structured_extraction_raw_preview = None
 
             class Result:
                 model_plan = {"provider": "google", "transcription_model": "gemini-2.5-flash"}
@@ -167,7 +168,8 @@ def test_structured_extraction_failure_is_visible_in_review_notes(monkeypatch):
                 process_candidates = [{"source": "transcript", "action": "extract_steps", "summary": "Transcript uploaded"}]
                 confidence = 0.7
                 structured_extraction = None
-                structured_extraction_error = "HTTPStatusError: HTTP 503"
+                structured_extraction_error = "Structured extraction returned no valid JSON. Raw preview: response body"
+                structured_extraction_raw_preview = "response body"
 
             class Result:
                 model_plan = {"provider": "google", "transcription_model": "gemini-2.5-flash"}
@@ -182,9 +184,10 @@ def test_structured_extraction_failure_is_visible_in_review_notes(monkeypatch):
     assert row.status == "needs_review"
     flags = row.review_notes.get("flags", [])
     assert any(flag.get("type") == "structured_extraction_failed" for flag in flags)
-    assert any("HTTP 503" in flag.get("message", "") for flag in flags)
+    assert any("Raw preview: response body" in flag.get("message", "") for flag in flags)
     assert any(
         "Structured extraction failed." in assumption
         for assumption in row.review_notes.get("assumptions", [])
     )
-    assert row.progress.get("evidence", {}).get("structured_extraction_error") == "HTTPStatusError: HTTP 503"
+    assert row.progress.get("evidence", {}).get("structured_extraction_error") == "Structured extraction returned no valid JSON. Raw preview: response body"
+    assert row.progress.get("evidence", {}).get("structured_extraction_raw_preview") == "response body"

@@ -444,4 +444,4 @@ def test_extract_with_llm_detailed_returns_error_for_invalid_json(monkeypatch):
     )
 
     assert result is None
-    assert error == "Structured extraction returned no valid JSON."
+    assert error == "Structured extraction returned no valid JSON. Raw preview: not json"

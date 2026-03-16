@@ -112,6 +112,7 @@ class AzureOpenAIAdapter(ProviderAdapter):
 
         structured = None
         structured_error = None
+        structured_raw_preview = None
         if settings.llm_enabled and (transcript_text or frame_images):
             self._validate_generation_config()
             try:
@@ -125,6 +126,8 @@ class AzureOpenAIAdapter(ProviderAdapter):
                     azure_endpoint=settings.azure_openai_endpoint,
                     frame_images=frame_images,
                 )
+                if structured_error and "Raw preview: " in structured_error:
+                    structured_raw_preview = structured_error.split("Raw preview: ", 1)[1].strip() or None
             except Exception as exc:
                 raise RuntimeError(
                     "azure_openai stage=structured_extraction mode="
@@ -144,6 +147,7 @@ class AzureOpenAIAdapter(ProviderAdapter):
             frame_images=frame_images,
             structured_extraction=structured,
             structured_extraction_error=structured_error,
+            structured_extraction_raw_preview=structured_raw_preview,
         )
 
     def estimate_cost(self, input_manifest: Dict, use_full_media: bool = False) -> Dict:

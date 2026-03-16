@@ -69,6 +69,7 @@ class OpenAIAdapter(ProviderAdapter):
 
         structured = None
         structured_error = None
+        structured_raw_preview = None
         if settings.llm_enabled and (transcript_text or frame_images):
             structured, structured_error = extract_with_llm_detailed(
                 provider=self.provider_name,
@@ -79,6 +80,8 @@ class OpenAIAdapter(ProviderAdapter):
                 model=self.extraction_model,
                 frame_images=frame_images,
             )
+            if structured_error and "Raw preview: " in structured_error:
+                structured_raw_preview = structured_error.split("Raw preview: ", 1)[1].strip() or None
         if structured and structured.get("process_steps"):
             candidates = [
                 {"source": "llm", "action": "extract_steps", "summary": step.get("summary", "")}
@@ -93,6 +96,7 @@ class OpenAIAdapter(ProviderAdapter):
             frame_images=frame_images,
             structured_extraction=structured,
             structured_extraction_error=structured_error,
+            structured_extraction_raw_preview=structured_raw_preview,
         )
 
     def estimate_cost(self, input_manifest: Dict, use_full_media: bool = False) -> Dict:

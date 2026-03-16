@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 MAX_EXTRACTION_OUTPUT_TOKENS = 4096
 MAX_EXTRACTION_RETRIES = 2
+MAX_RAW_PREVIEW_CHARS = 1000
 SYSTEM_PROMPT = """
 You extract business process structure from evidence.
 Return valid JSON only.
@@ -169,6 +170,21 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
         return json.loads(match.group(0))
     except json.JSONDecodeError:
         return None
+
+
+def _truncate_raw_preview(text: str) -> Optional[str]:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return None
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned[:MAX_RAW_PREVIEW_CHARS]
+
+
+def _parse_extraction_text(text: str) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+    parsed = _extract_json(text)
+    if not parsed:
+        return None, _truncate_raw_preview(text)
+    return _normalize_extraction(parsed), None
 
 
 def _as_list(value: Any) -> list[str]:
@@ -411,7 +427,8 @@ def _google_extract(
     document_template: str,
     frame_images: Optional[list[dict[str, Any]]] = None,
     context_notes: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+    return_raw_text: bool = False,
+) -> Any:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     frame_images = frame_images or []
     prompt = PROMPT_TEMPLATE.replace(
@@ -461,8 +478,10 @@ def _google_extract(
         .get("parts", [{}])[0]
         .get("text", "")
     )
-    parsed = _extract_json(text)
-    return _normalize_extraction(parsed) if parsed else None
+    normalized, raw_preview = _parse_extraction_text(text)
+    if return_raw_text:
+        return normalized, raw_preview
+    return normalized
 
 
 def _openai_extract(
@@ -472,7 +491,8 @@ def _openai_extract(
     document_template: str,
     frame_images: Optional[list[dict[str, Any]]] = None,
     context_notes: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+    return_raw_text: bool = False,
+) -> Any:
     url = "https://api.openai.com/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}"}
     frame_images = frame_images or []
@@ -509,8 +529,10 @@ def _openai_extract(
 
     data = _run_with_transient_retries(_request)
     text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    parsed = _extract_json(text)
-    return _normalize_extraction(parsed) if parsed else None
+    normalized, raw_preview = _parse_extraction_text(text)
+    if return_raw_text:
+        return normalized, raw_preview
+    return normalized
 
 
 def _azure_openai_extract(
@@ -521,7 +543,8 @@ def _azure_openai_extract(
     document_template: str,
     frame_images: Optional[list[dict[str, Any]]] = None,
     context_notes: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+    return_raw_text: bool = False,
+) -> Any:
     base = endpoint.rstrip("/")
     # Azure OpenAI OpenAI-compatible v1 format.
     url = f"{base}/openai/v1/chat/completions"
@@ -560,8 +583,10 @@ def _azure_openai_extract(
 
     data = _run_with_transient_retries(_request)
     text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    parsed = _extract_json(text)
-    return _normalize_extraction(parsed) if parsed else None
+    normalized, raw_preview = _parse_extraction_text(text)
+    if return_raw_text:
+        return normalized, raw_preview
+    return normalized
 
 
 def _ollama_extract(
@@ -571,7 +596,8 @@ def _ollama_extract(
     document_template: str,
     frame_images: Optional[list[dict[str, Any]]] = None,
     context_notes: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+    return_raw_text: bool = False,
+) -> Any:
     url = f"{base_url.rstrip('/')}/api/generate"
     frame_images = frame_images or []
     prompt = PROMPT_TEMPLATE.replace(
@@ -609,8 +635,10 @@ def _ollama_extract(
 
     data = _run_with_transient_retries(_request)
     text = data.get("response", "")
-    parsed = _extract_json(text)
-    return _normalize_extraction(parsed) if parsed else None
+    normalized, raw_preview = _parse_extraction_text(text)
+    if return_raw_text:
+        return normalized, raw_preview
+    return normalized
 
 
 def extract_with_llm(
@@ -649,24 +677,26 @@ def extract_with_llm_detailed(
     azure_endpoint: Optional[str] = None,
     frame_images: Optional[list[dict[str, Any]]] = None,
 ) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+    result_raw_preview = None
     frame_images = frame_images or []
     if (not transcript_text and not frame_images) or not api_key:
         if provider != "ollama":
             return None, None
     try:
         if provider == "google":
-            result = _google_extract(
+            result, result_raw_preview = _google_extract(
                 transcript_text=transcript_text,
                 document_template=document_template,
                 context_notes=context_notes,
                 api_key=api_key,
                 model=model,
                 frame_images=frame_images,
+                return_raw_text=True,
             )
         elif provider == "azure_openai":
             if not azure_endpoint:
                 return None, "Structured extraction skipped: Azure endpoint is missing."
-            result = _azure_openai_extract(
+            result, result_raw_preview = _azure_openai_extract(
                 transcript_text=transcript_text,
                 document_template=document_template,
                 context_notes=context_notes,
@@ -674,26 +704,31 @@ def extract_with_llm_detailed(
                 deployment=model,
                 endpoint=azure_endpoint,
                 frame_images=frame_images,
+                return_raw_text=True,
             )
         elif provider == "ollama":
-            result = _ollama_extract(
+            result, result_raw_preview = _ollama_extract(
                 transcript_text=transcript_text,
                 document_template=document_template,
                 context_notes=context_notes,
                 model=model,
                 base_url=ollama_base_url or "http://127.0.0.1:11434",
                 frame_images=frame_images,
+                return_raw_text=True,
             )
         else:
-            result = _openai_extract(
+            result, result_raw_preview = _openai_extract(
                 transcript_text=transcript_text,
                 document_template=document_template,
                 context_notes=context_notes,
                 api_key=api_key,
                 model=model,
                 frame_images=frame_images,
+                return_raw_text=True,
             )
         if result is None:
+            if result_raw_preview:
+                return None, f"Structured extraction returned no valid JSON. Raw preview: {result_raw_preview}"
             return None, "Structured extraction returned no valid JSON."
         return result, None
     except Exception as exc:

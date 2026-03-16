@@ -12,6 +12,7 @@ class EvidencePayload:
     frame_images: List[Dict] = field(default_factory=list)
     structured_extraction: Optional[Dict] = None
     structured_extraction_error: Optional[str] = None
+    structured_extraction_raw_preview: Optional[str] = None
 
 
 @dataclass
