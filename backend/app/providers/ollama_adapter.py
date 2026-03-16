@@ -32,6 +32,7 @@ class OllamaAdapter(ProviderAdapter):
         self,
         input_manifest: Dict,
         transcript_text: str,
+        context_notes: str = None,
         processing_profile: str = "balanced",
         use_full_media: bool = False,
     ) -> EvidencePayload:
@@ -72,6 +73,7 @@ class OllamaAdapter(ProviderAdapter):
             structured = extract_with_llm(
                 provider=self.provider_name,
                 transcript_text=transcript_text,
+                context_notes=context_notes,
                 api_key=None,
                 model=settings.ollama_model,
                 ollama_base_url=settings.ollama_base_url,

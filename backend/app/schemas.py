@@ -94,4 +94,5 @@ class SOPDocumentModel(BaseModel):
     tools_and_systems_reference: list[dict[str, Any]]
     training_and_kt: dict[str, Any]
     controls_and_compliance: dict[str, Any]
+    automation_opportunities: list[dict[str, Any]] = Field(default_factory=list)
     related_documents: list[dict[str, Any]]

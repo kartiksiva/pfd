@@ -214,6 +214,7 @@ def test_generate_document_from_extraction_dedupes_and_cleans_exception_rows():
     exception_rows = doc["exception_handling"]["exception_matrix"]
     assert len(exception_rows) == 1
     assert exception_rows[0]["scenario"] == "Work item is routed or classified incorrectly."
+    assert exception_rows[0]["trigger_symptom"] == "Existing guidance is informal, so newer team members may classify complaints inconsistently."
     assert "Anita Rao:" not in exception_rows[0]["trigger_symptom"]
     assert "What happens if information is missing?" not in str(exception_rows)
 
@@ -304,6 +305,99 @@ def test_generate_document_from_extraction_custom_sop_preserves_explicit_evidenc
     assert doc["scope"]["out_of_scope"][0] == "Activities outside the documented current-state process boundary."
 
 
+def test_generate_document_from_extraction_discards_transcript_scope_overreach_and_weak_review_control():
+    extraction = {
+        "process_name": "Customer Complaint Intake and Resolution Triage",
+        "purpose": "To receive, validate, categorize, assign, track, and close customer complaints in compliance with SLA and regulatory requirements.",
+        "scope": "Covers all customer complaints from initial intake through resolution assignment and closure. Excludes final resolution and post-resolution follow-up.",
+        "process_steps": [
+            {
+                "step_no": 1,
+                "title": "Complaint Intake",
+                "summary": "Analysts review mailbox and phone log, then create complaint records in CRM.",
+                "role": "Intake Analyst",
+                "system": "CRM",
+                "input": "Customer complaint",
+                "output": "Complaint record in CRM",
+            },
+            {
+                "step_no": 2,
+                "title": "Assignment to Resolution Team",
+                "summary": "Complaint is manually assigned to the appropriate resolution team.",
+                "role": "Intake Analyst",
+                "system": "CRM",
+                "input": "Categorized complaint record",
+                "output": "Assigned complaint record",
+            },
+        ],
+        "roles": ["Intake Analyst", "Customer Service Analyst", "Compliance Team"],
+        "systems": ["CRM", "Outlook"],
+        "operational_facts": {
+            "frequency": "Daily",
+            "volumes_or_frequency": [],
+            "sla_targets": ["Regulatory complaints need response within 24 hours."],
+            "routing_rules": [],
+            "control_requirements": ["There is a manual override and compliance requires an audit trail."],
+            "governance_notes": [],
+            "quantified_pain_points": [],
+            "systems": ["CRM", "Outlook"],
+            "teams": ["Intake Analyst", "Customer Service Analyst", "Compliance Team"],
+            "exception_details": [],
+        },
+    }
+
+    doc = generate_document_from_extraction(extraction, document_type="custom_sop", frame_images=[])
+    assert doc["purpose"] == "To execute the documented current-state process consistently, with clear steps, controls, and exception handling."
+    assert doc["scope"]["in_scope"][0] == "The process begins at the documented trigger and ends when the final documented output is produced."
+    descriptions = [row["description"] for row in doc["controls_and_compliance"]["controls"]]
+    assert any("audit trail" in item.lower() for item in descriptions)
+    assert not any("approval" in item.lower() for item in descriptions)
+
+
+def test_generate_document_from_extraction_surfaces_effort_and_automation_opportunities():
+    extraction = {
+        "process_name": "Customer Complaint Intake and Resolution Triage",
+        "process_steps": [
+            {
+                "step_no": 1,
+                "title": "Complaint Intake",
+                "summary": "Receive complaint from intake channels.",
+                "role": "Intake Analyst",
+                "system": "CRM",
+                "input": "Customer complaint",
+                "output": "Complaint record",
+            }
+        ],
+        "roles": ["Intake Analyst"],
+        "systems": ["CRM"],
+        "effort_data": [{"step_no": 1, "effort_minutes_min": 8, "effort_minutes_max": 10}],
+        "pain_points": [
+            {
+                "description": "Complaint intake requires duplicate data entry.",
+                "quantification": "8 to 10 minutes per complaint",
+                "automation_signal": "high",
+            }
+        ],
+        "operational_facts": {
+            "frequency": "Daily",
+            "volumes_or_frequency": [],
+            "sla_targets": [],
+            "routing_rules": [],
+            "control_requirements": [],
+            "governance_notes": [],
+            "quantified_pain_points": [],
+            "systems": [],
+            "teams": [],
+            "exception_details": [],
+        },
+    }
+
+    doc = generate_document_from_extraction(extraction, document_type="custom_sop", frame_images=[])
+    assert doc["steps"][0]["effort_minutes_min"] == 8
+    assert doc["steps"][0]["effort_minutes_max"] == 10
+    assert doc["automation_opportunities"][0]["description"] == "Complaint intake requires duplicate data entry"
+
+
 def test_generate_document_from_extraction_custom_sop_stays_generic_for_non_domain_specific_processes():
     extraction = {
         "process_name": "RPA Challenge Data Entry Process",
@@ -356,8 +450,94 @@ def test_generate_document_from_extraction_custom_sop_stays_generic_for_non_doma
     rendered_text = str(doc)
     assert "complaint" not in rendered_text.lower()
     assert doc["document_control"]["department"] == "Needs Review"
-    assert doc["custom_sop_summary"]["inputs"] == ["Challenge web page", "Excel input file", "Populated form"]
-    assert doc["custom_sop_summary"]["outputs"] == ["Excel input file", "Challenge timer starts", "Form submission confirmation"]
+    assert doc["custom_sop_summary"]["inputs"] == [
+        "RPA Challenge web page",
+        "Downloaded Excel spreadsheet",
+        "Active web form",
+        "Excel data row and field mapping",
+        "Populated web form",
+        "Remaining Excel data",
+        "Challenge completion event",
+    ]
+    assert doc["custom_sop_summary"]["outputs"] == [
+        "Downloaded Excel spreadsheet",
+        "Challenge timer starts",
+        "Field mapping for current round",
+        "Populated web form",
+        "Form submission confirmation",
+        "All items submitted",
+        "Completion time result",
+    ]
+
+
+def test_generate_document_from_extraction_expands_rpa_challenge_steps_and_aligns_media():
+    extraction = {
+        "process_name": "RPA Challenge Data Entry",
+        "process_steps": [
+            {
+                "step_no": 1,
+                "title": "Download Input Spreadsheet",
+                "summary": "Download the spreadsheet and start the challenge.",
+                "role": "Automation Bot",
+                "system": "rpachallenge.com",
+                "input": "RPA Challenge web page",
+                "output": "Challenge started",
+            },
+            {
+                "step_no": 2,
+                "title": "Populate Dynamic Form",
+                "summary": "Read each row, locate the fields, populate the form, and submit for all 10 rounds.",
+                "role": "Automation Bot",
+                "system": "rpachallenge.com",
+                "input": "Downloaded Excel spreadsheet",
+                "output": "Completed challenge",
+            },
+        ],
+        "roles": ["Automation Bot"],
+        "systems": ["rpachallenge.com"],
+        "operational_facts": {
+            "frequency": "",
+            "volumes_or_frequency": [],
+            "sla_targets": [],
+            "routing_rules": [],
+            "control_requirements": [],
+            "governance_notes": [],
+            "quantified_pain_points": [],
+            "systems": [],
+            "teams": [],
+            "exception_details": [],
+        },
+    }
+    frames = [
+        {"timestamp_seconds": 0, "path": "frame-1.jpg", "reason": "baseline"},
+        {"timestamp_seconds": 12, "path": "frame-2.jpg", "reason": "baseline"},
+        {"timestamp_seconds": 24, "path": "frame-3.jpg", "reason": "baseline"},
+        {"timestamp_seconds": 44.26, "path": "frame-4.jpg", "reason": "process_hotspot"},
+        {"timestamp_seconds": 60, "path": "frame-5.jpg", "reason": "baseline"},
+        {"timestamp_seconds": 72, "path": "frame-6.jpg", "reason": "baseline"},
+        {"timestamp_seconds": 88.03, "path": "frame-7.jpg", "reason": "end_state"},
+    ]
+
+    doc = generate_document_from_extraction(extraction, document_type="custom_sop", frame_images=frames)
+    step_titles = [step["title"] for step in doc["steps"]]
+    assert step_titles == [
+        "Download Input Spreadsheet",
+        "Start Challenge",
+        "Identify Field Positions",
+        "Input Data into Form",
+        "Submit Form",
+        "Repeat for All Items",
+        "Capture Completion Time",
+    ]
+    assert [step["source_timestamp"] for step in doc["steps"]] == [
+        "00:00:00",
+        "00:00:12",
+        "00:00:24",
+        "00:00:44",
+        "00:01:00",
+        "00:01:12",
+        "00:01:28",
+    ]
 
 
 def test_quality_checks_flag_lost_operational_facts():
@@ -379,3 +559,31 @@ def test_quality_checks_flag_lost_operational_facts():
     flag_types = [flag["type"] for flag in result["flags"]]
     assert "lost_operational_facts" in flag_types
     assert "lost_system_context" in flag_types
+
+
+def test_quality_checks_flag_missing_pain_points_and_effort_data():
+    document = {
+        "document_control": {"sop_title": "Complaint Intake SOP"},
+        "quality_checks": {"checks": []},
+        "steps": [{"title": "Receive complaint"}],
+        "prerequisites_and_inputs": {"input_documents_data": [{"frequency": "Daily"}]},
+        "sla_and_performance_targets": [{"kpi": "SLA", "target": "Within 24 hours"}],
+        "tools_and_systems_reference": [{"tool_system": "CRM"}],
+        "automation_opportunities": [],
+    }
+    result = run_quality_checks(
+        pdd=document,
+        sipoc=[{"supplier": "Customer", "input": "Complaint", "process_step": "Receive", "output": "Case", "customer": "Analyst"}],
+        confidence=0.8,
+        document_type="custom_sop",
+        source_facts={
+            "sla_targets": ["Within 24 hours"],
+            "volumes_or_frequency": ["180 to 220 per day"],
+            "systems": ["CRM"],
+            "pain_points": [{"description": "Manual rework", "quantification": "20 percent", "automation_signal": "high"}],
+            "effort_data": [{"step_no": 1, "effort_minutes_min": 8, "effort_minutes_max": 10}],
+        },
+    )
+    messages = [flag["message"] for flag in result["flags"]]
+    assert any("pain points" in message for message in messages)
+    assert any("effort data" in message for message in messages)

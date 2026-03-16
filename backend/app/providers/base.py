@@ -33,6 +33,7 @@ class ProviderAdapter:
         self,
         input_manifest: Dict,
         transcript_text: str,
+        context_notes: Optional[str] = None,
         processing_profile: str = "balanced",
         use_full_media: bool = False,
     ) -> EvidencePayload:
@@ -44,12 +45,13 @@ class ProviderAdapter:
     def should_use_full_media(self, processing_profile: str) -> bool:
         return processing_profile == "quality"
 
-    def run(self, input_manifest: Dict, processing_profile: str = "balanced") -> AdapterResult:
+    def run(self, input_manifest: Dict, processing_profile: str = "balanced", context_notes: Optional[str] = None) -> AdapterResult:
         use_full_media = self.should_use_full_media(processing_profile)
         transcript_text = self.transcribe(input_manifest, use_full_media=use_full_media)
         evidence = self.build_evidence(
             input_manifest=input_manifest,
             transcript_text=transcript_text,
+            context_notes=context_notes,
             processing_profile=processing_profile,
             use_full_media=use_full_media,
         )

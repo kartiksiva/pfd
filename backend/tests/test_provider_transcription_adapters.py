@@ -4,6 +4,7 @@ from app.config import get_settings
 from app.providers.azure_openai_adapter import AzureOpenAIAdapter
 from app.providers.google_adapter import GoogleAdapter
 from app.providers.openai_adapter import OpenAIAdapter
+from app.providers.structured_extraction import _compose_prompt_text, _normalize_extraction
 
 
 def test_google_adapter_prefers_existing_transcript(tmp_path: Path):
@@ -141,3 +142,25 @@ def test_azure_openai_adapter_requires_chat_deployment_for_structured_extraction
     else:
         raise AssertionError("Expected RuntimeError for missing chat deployment")
     get_settings.cache_clear()
+
+
+def test_compose_prompt_text_includes_context_notes():
+    prompt = _compose_prompt_text("Transcript body", "This is a GAFTA contract compliance process.")
+    assert "Additional context provided by user:" in prompt
+    assert "GAFTA contract compliance process" in prompt
+    assert "Source transcript:" in prompt
+
+
+def test_normalize_extraction_preserves_new_structured_fields():
+    normalized = _normalize_extraction(
+        {
+            "process_name": "Sample",
+            "process_steps": [{"step_no": 1, "summary": "Do work"}],
+            "decision_rules": [{"condition": "data is missing", "action": "request update", "applies_to_step": 1}],
+            "effort_data": [{"step_no": 1, "effort_minutes_min": 8, "effort_minutes_max": 10}],
+            "pain_points": [{"description": "Manual rework", "quantification": "20 percent rework", "automation_signal": "high"}],
+        }
+    )
+    assert normalized["decision_rules"][0]["condition"] == "data is missing"
+    assert normalized["effort_data"][0]["effort_minutes_min"] == 8
+    assert normalized["pain_points"][0]["automation_signal"] == "high"

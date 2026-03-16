@@ -74,7 +74,7 @@ def process_job_async(job_id: str) -> None:
         primary_error: Optional[str] = None
         execution_provider = requested_provider
         try:
-            result = adapter.run(job.input_manifest, processing_profile=job.processing_profile)
+            result = adapter.run(job.input_manifest, processing_profile=job.processing_profile, context_notes=job.context_notes)
             execution_provider = result.evidence.provider or requested_provider
         except Exception as primary_exc:
             fallback_used = True
@@ -93,7 +93,7 @@ def process_job_async(job_id: str) -> None:
             fallback_provider = _fallback_provider(requested_provider)
             fallback = get_provider_adapter(fallback_provider)
             try:
-                result = fallback.run(job.input_manifest, processing_profile=job.processing_profile)
+                result = fallback.run(job.input_manifest, processing_profile=job.processing_profile, context_notes=job.context_notes)
                 execution_provider = result.evidence.provider or fallback_provider
             except Exception as fallback_exc:
                 _set_failure(
@@ -194,6 +194,11 @@ def process_job_async(job_id: str) -> None:
             sipoc=sipoc,
             confidence=extraction.get("confidence", 0.0),
             document_type=document_type,
+            source_facts={
+                **(extraction.get("operational_facts", {}) if isinstance(extraction.get("operational_facts"), dict) else {}),
+                "effort_data": extraction.get("effort_data", []),
+                "pain_points": extraction.get("pain_points", []),
+            },
         )
         if fallback_used:
             review_notes.setdefault("flags", []).append(
