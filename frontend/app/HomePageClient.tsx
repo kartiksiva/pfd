@@ -625,9 +625,9 @@ export default function HomePage() {
                 <div className="uploadGrid">
                   <UploadPanel
                     title="Transcript"
-                    accept=".txt,.md,.pdf,text/plain,text/markdown,application/pdf"
+                    accept=".txt,.md,.pdf,.vtt,text/plain,text/markdown,text/vtt,application/pdf"
                     file={transcriptFile}
-                    hint="TXT, PDF, DOC, DOCX"
+                    hint="TXT, MD, PDF, VTT (Teams/WebVTT)"
                     onChange={setTranscriptFile}
                   />
                   <UploadPanel title="Audio" accept="audio/*" file={audioFile} hint="MP3, WAV, M4A, OGG" onChange={setAudioFile} />

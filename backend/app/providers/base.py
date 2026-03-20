@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+from app.transcript_utils import read_transcript_asset
+
 
 @dataclass
 class EvidencePayload:
@@ -9,6 +11,7 @@ class EvidencePayload:
     visual_events: List[Dict]
     process_candidates: List[Dict]
     confidence: float
+    transcript_format: Optional[str] = None
     frame_images: List[Dict] = field(default_factory=list)
     structured_extraction: Optional[Dict] = None
     structured_extraction_error: Optional[str] = None
@@ -92,14 +95,5 @@ def transcript_file_exists(input_manifest: Dict) -> bool:
 
 
 def read_transcript_file(input_manifest: Dict) -> Optional[str]:
-    entry = input_manifest.get("transcript")
-    if not entry:
-        return None
-    path = entry.get("storage_key")
-    if not path:
-        return None
-    try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            return f.read().strip()
-    except OSError:
-        return None
+    asset = read_transcript_asset(input_manifest)
+    return asset.text if asset else None

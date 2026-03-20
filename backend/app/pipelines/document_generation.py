@@ -50,6 +50,20 @@ def _clean_fact_text(value: str) -> str:
     return text.strip(" .")
 
 
+def _looks_like_timestamp_or_cue(value: str) -> bool:
+    cleaned = str(value or "").strip()
+    if not cleaned:
+        return True
+    patterns = [
+        r"^webvtt$",
+        r"^\d+$",
+        r"^\d{2}:\d{2}(?::\d{2})?$",
+        r"^\d{2}:\d{2}(?::\d{2})?\.\d{3}$",
+        r"^\d{2}:\d{2}(?::\d{2})?(?:\.\d{3})?\s*-->\s*\d{2}:\d{2}(?::\d{2})?(?:\.\d{3})?(?:\s+.*)?$",
+    ]
+    return any(re.fullmatch(pattern, cleaned, flags=re.IGNORECASE) for pattern in patterns)
+
+
 def _is_future_state_statement(value: str) -> bool:
     lowered = _clean_fact_text(value).lower()
     if not lowered:
@@ -91,6 +105,54 @@ def _is_operational_question(value: str) -> bool:
     return lowered.endswith("?") or any(prompt in lowered for prompt in prompts)
 
 
+def _step_looks_like_fragment(step: Dict) -> bool:
+    title = _clean_fact_text(str(step.get("title", "")))
+    description = _clean_fact_text(str(step.get("description", "")))
+    combined = " ".join(part for part in [title, description] if part).strip()
+    if not combined:
+        return True
+    if _looks_like_timestamp_or_cue(title) or _looks_like_timestamp_or_cue(description):
+        return True
+    if len(combined) < 12:
+        return True
+    if _is_operational_question(combined) or _is_future_state_statement(combined):
+        return True
+    return False
+
+
+def _review_safe_sop_steps(steps: List[Dict]) -> List[Dict]:
+    cleaned_steps = [dict(step) for step in steps if not _step_looks_like_fragment(step)]
+    return cleaned_steps
+
+
+def _custom_sop_guardrail(steps: List[Dict]) -> Dict:
+    if not steps:
+        return {"review_required": True, "review_notes": ["No supported process steps were extracted."]}
+    placeholder_count = 0
+    noisy_count = 0
+    for step in steps:
+        text = " ".join(
+            [
+                str(step.get("title", "")),
+                str(step.get("description", "")),
+                str(step.get("input", "")),
+                str(step.get("output", "")),
+            ]
+        )
+        lowered = text.lower()
+        if "needs review" in lowered:
+            placeholder_count += 1
+        if _step_looks_like_fragment(step):
+            noisy_count += 1
+    step_count = len(steps)
+    review_notes = []
+    if noisy_count / step_count >= 0.3:
+        review_notes.append("Extracted steps contain transcript fragments or cue-like artifacts.")
+    if placeholder_count / step_count >= 0.4:
+        review_notes.append("Extracted steps contain too many placeholders for a reliable SOP draft.")
+    return {"review_required": bool(review_notes), "review_notes": review_notes}
+
+
 def _normalize_role_name(role: str) -> str:
     cleaned = _clean_fact_text(role)
     if not cleaned:
@@ -100,6 +162,19 @@ def _normalize_role_name(role: str) -> str:
     if cleaned.islower():
         return cleaned.title()
     return cleaned
+
+
+def _compact_role_labels(roles: List[str]) -> List[str]:
+    normalized = _dedupe_preserve([_normalize_role_name(role) for role in roles])
+    lowered = {role.lower(): role for role in normalized}
+    has_specific_analyst = any(role.lower().endswith("analyst") and role.lower() != "analyst" for role in normalized)
+    compacted: List[str] = []
+    for role in normalized:
+        role_lower = role.lower()
+        if has_specific_analyst and role_lower == "analyst":
+            continue
+        compacted.append(role)
+    return compacted
 
 
 def _role_responsibility(role: str) -> str:
@@ -113,7 +188,7 @@ def _role_responsibility(role: str) -> str:
 
 def _build_role_rows(roles: List[str]) -> List[Dict]:
     rows: List[Dict] = []
-    for role in _dedupe_preserve([_normalize_role_name(role) for role in roles]):
+    for role in _compact_role_labels(roles):
         if not role:
             continue
         rows.append(
@@ -133,17 +208,19 @@ def _normalize_custom_sop_role(role: str) -> str:
 def _custom_sop_roles(roles: List[str], facts: Dict) -> List[str]:
     source = list(roles or []) + list(facts.get("teams", []) or [])
     normalized = [_normalize_custom_sop_role(role) for role in source]
-    return _dedupe_preserve([role for role in normalized if role and role.lower() != "needs review"])
+    valid = [role for role in normalized if role and role.lower() != "needs review"]
+    return _compact_role_labels(valid)
 
 
 def _custom_sop_owner(roles: List[str], steps: List[Dict]) -> str:
-    for role in roles:
+    compact_roles = _compact_role_labels(roles)
+    for role in compact_roles:
         cleaned = _normalize_role_name(role)
-        if cleaned and cleaned.lower() not in {"operator", "system", "customer", "needs review"}:
+        if cleaned and cleaned.lower() not in {"operator", "system", "customer", "needs review", "analyst"}:
             return cleaned
     for step in steps:
         actor = _normalize_custom_sop_role(str(step.get("actor", "")))
-        if actor and actor.lower() not in {"operator", "system", "customer", "needs review"}:
+        if actor and actor.lower() not in {"operator", "system", "customer", "needs review", "analyst"}:
             return actor
     return "Needs Review"
 
@@ -250,7 +327,13 @@ def _custom_sop_summary(steps: List[Dict], facts: Dict, roles: List[str]) -> Dic
 
 
 def _custom_sop_faq_items(steps: List[Dict], facts: Dict) -> List[Dict]:
-    return [{"topic": "Process overview", "tip": "Needs Review"}]
+    if not steps:
+        return []
+    flow = " -> ".join(str(step.get("title", "")).strip() for step in steps[:5] if str(step.get("title", "")).strip())
+    tip = _clean_fact_text(flow)
+    if not tip:
+        return []
+    return [{"topic": "Process overview", "tip": tip}]
 
 
 def _normalize_exception_description(item: str) -> str:
@@ -487,9 +570,7 @@ def _build_controls(facts: Dict) -> Dict:
         for item in facts.get("governance_notes", [])
         if _clean_fact_text(item) and not _is_future_state_statement(item)
     ]
-    if not controls:
-        controls = [{"control": "CTRL-1", "type": "Detective", "description": "Needs Review", "evidence_required": "Needs Review"}]
-    return {"controls": controls, "policies": policies or ["Needs Review"]}
+    return {"controls": controls, "policies": policies}
 
 
 def _build_exception_matrix(facts: Dict) -> Dict:
@@ -513,114 +594,10 @@ def _build_exception_matrix(facts: Dict) -> Dict:
                 "escalation_path": _exception_owner(cleaned),
             }
         )
-    if not rows:
-        rows = [
-            {
-                "exception_id": "EXC-01",
-                "scenario": "Needs Review",
-                "trigger_symptom": "Needs Review",
-                "action_to_take": "Needs Review",
-                "escalation_path": "Needs Review",
-            }
-        ]
     return {
         "exception_matrix": rows,
-        "escalation_matrix": [{"level": "L1", "trigger_condition": "Operator cannot resolve", "contact": "Needs Review", "response_time": "Needs Review"}],
+        "escalation_matrix": [],
     }
-
-
-def _looks_like_rpa_challenge_process(process_name: str, steps: List[Dict]) -> bool:
-    text = " ".join(
-        [
-            process_name,
-            *[str(step.get("title", "")) for step in steps],
-            *[str(step.get("description", "")) for step in steps],
-            *[str(step.get("input", "")) for step in steps],
-            *[str(step.get("output", "")) for step in steps],
-        ]
-    ).lower()
-    markers = [
-        "rpa challenge",
-        "rpachallenge",
-        "download excel",
-        "dynamic form",
-        "field layout",
-        "10 rounds",
-        "10 consecutive rounds",
-    ]
-    return any(marker in text for marker in markers)
-
-
-def _build_challenge_steps(base_steps: List[Dict]) -> List[Dict]:
-    if not base_steps:
-        return []
-    first_actor = str(base_steps[0].get("actor", "")).strip() or "Automation Bot"
-    first_system = str(base_steps[0].get("system", "")).strip() or "RPA Challenge Website"
-    rows = [
-        {
-            "title": "Download Input Spreadsheet",
-            "actor": first_actor,
-            "system": "rpachallenge.com" if "rpachallenge" in first_system.lower() or "challenge" in first_system.lower() else first_system,
-            "description": "The bot navigates to the RPA Challenge website and downloads the source spreadsheet.",
-            "input": "RPA Challenge web page",
-            "output": "Downloaded Excel spreadsheet",
-        },
-        {
-            "title": "Start Challenge",
-            "actor": first_actor,
-            "system": "rpachallenge.com" if "rpachallenge" in first_system.lower() or "challenge" in first_system.lower() else first_system,
-            "description": "The bot clicks the Start button to begin the challenge and activate the data-entry form.",
-            "input": "Downloaded Excel spreadsheet",
-            "output": "Challenge timer starts",
-        },
-        {
-            "title": "Identify Field Positions",
-            "actor": first_actor,
-            "system": "rpachallenge.com" if "rpachallenge" in first_system.lower() or "challenge" in first_system.lower() else first_system,
-            "description": "For the current round, the bot identifies the current position of each labeled field on the web form.",
-            "input": "Active web form",
-            "output": "Field mapping for current round",
-        },
-        {
-            "title": "Input Data into Form",
-            "actor": first_actor,
-            "system": "rpachallenge.com" if "rpachallenge" in first_system.lower() or "challenge" in first_system.lower() else first_system,
-            "description": "The bot reads the current spreadsheet row and enters the corresponding values into the identified form fields.",
-            "input": "Excel data row and field mapping",
-            "output": "Populated web form",
-        },
-        {
-            "title": "Submit Form",
-            "actor": first_actor,
-            "system": "rpachallenge.com" if "rpachallenge" in first_system.lower() or "challenge" in first_system.lower() else first_system,
-            "description": "The bot submits the populated form for the current round.",
-            "input": "Populated web form",
-            "output": "Form submission confirmation",
-        },
-        {
-            "title": "Repeat for All Items",
-            "actor": first_actor,
-            "system": "rpachallenge.com" if "rpachallenge" in first_system.lower() or "challenge" in first_system.lower() else first_system,
-            "description": "The bot repeats the identify, input, and submit steps until all spreadsheet rows are processed.",
-            "input": "Remaining Excel data",
-            "output": "All items submitted",
-        },
-        {
-            "title": "Capture Completion Time",
-            "actor": first_actor,
-            "system": "rpachallenge.com" if "rpachallenge" in first_system.lower() or "challenge" in first_system.lower() else first_system,
-            "description": "After the last submission, the bot records the final completion time shown by the challenge.",
-            "input": "Challenge completion event",
-            "output": "Completion time result",
-        },
-    ]
-    return rows
-
-
-def _expand_custom_sop_steps(process_name: str, steps: List[Dict]) -> List[Dict]:
-    if _looks_like_rpa_challenge_process(process_name, steps):
-        return _build_challenge_steps(steps)
-    return steps
 
 
 def _decision_rule_lines(extraction: Dict) -> List[str]:
@@ -672,13 +649,14 @@ def _automation_opportunities(extraction: Dict, facts: Dict) -> List[Dict]:
         if not isinstance(row, dict):
             continue
         description = _clean_fact_text(str(row.get("description", "")))
-        if not description:
+        quantification = _clean_fact_text(str(row.get("quantification", "")))
+        if not description or _is_future_state_statement(description) or _is_operational_question(description):
             continue
         rows.append(
             {
                 "opportunity_id": f"AUTO-{idx:02d}",
                 "description": description,
-                "quantification": _clean_fact_text(str(row.get("quantification", ""))) or "Needs Review",
+                "quantification": quantification or "Needs Review",
                 "automation_signal": str(row.get("automation_signal", "medium")).strip().lower() or "medium",
             }
         )
@@ -687,7 +665,7 @@ def _automation_opportunities(extraction: Dict, facts: Dict) -> List[Dict]:
     fallback = []
     for idx, item in enumerate((facts.get("quantified_pain_points", []) if isinstance(facts, dict) else [])[:3], start=1):
         cleaned = _clean_fact_text(item)
-        if not cleaned:
+        if not cleaned or _is_future_state_statement(cleaned) or _is_operational_question(cleaned):
             continue
         fallback.append(
             {
@@ -834,11 +812,12 @@ def generate_document_from_extraction(
     scope_text = _custom_sop_scope_text(str(pdd.get("scope", "Current-state process only.")))
     custom_roles = _custom_sop_roles(pdd.get("roles", []) or [], facts)
     custom_steps = [_normalize_custom_sop_step(step) for step in mapped_steps if _is_custom_sop_step_supported(step)]
-    custom_steps = _expand_custom_sop_steps(str(extraction.get("process_name", "")), custom_steps)
     custom_steps = _map_step_media(custom_steps, frame_images)
     custom_steps = _apply_effort_data_to_steps(custom_steps, extraction)
     custom_steps = _custom_sop_step_notes(custom_steps, facts)
     custom_steps = _cleanup_custom_sop_step_boundaries(custom_steps)
+    custom_steps = _review_safe_sop_steps(custom_steps)
+    guardrail = _custom_sop_guardrail(custom_steps)
     sop_title = _meaningful_process_name(extraction, custom_steps or mapped_steps)
     inferred_owner = _custom_sop_owner(custom_roles, custom_steps or mapped_steps)
     inferred_department = _infer_department(extraction, custom_roles or pdd.get("roles", []) or [], facts)
@@ -870,6 +849,7 @@ def generate_document_from_extraction(
             "version": "1.0",
             "classification": "Internal",
             "source_reference": "Generated from uploaded transcript/audio/video evidence",
+            "review_required": guardrail["review_required"],
         },
         "revision_history": [{"version": "1.0", "date": date.today().strftime("%d-%b-%Y"), "author": "PFCD Agent", "change_summary": "Initial Draft", "approved_by": "Needs Review"}],
         "purpose": _custom_sop_purpose(str(pdd.get("purpose", "Needs Review"))),
@@ -904,7 +884,8 @@ def generate_document_from_extraction(
                 }
                 for idx, control in enumerate(controls["controls"][:3], start=1)
             ],
-            "operator_checklist": outputs or ["Needs Review"],
+            "operator_checklist": outputs,
+            "review_notes": guardrail["review_notes"],
         },
         "exception_handling": _build_exception_matrix(facts),
         "sla_and_performance_targets": _build_sla_rows(facts),
@@ -924,6 +905,8 @@ def generate_document_from_extraction(
         "custom_sop_summary": custom_summary,
         "faq_items": _custom_sop_faq_items(custom_steps, facts),
         "operational_facts": facts,
+        "review_required": guardrail["review_required"],
+        "review_notes": guardrail["review_notes"],
     }
     return sop
 

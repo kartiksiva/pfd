@@ -1,0 +1,3 @@
+Customer submits request
+Analyst validates request
+System updates ticket

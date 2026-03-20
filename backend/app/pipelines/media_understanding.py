@@ -1,6 +1,17 @@
 from typing import Dict, List, Optional
+import re
 
 from app.pipelines.frame_selector import select_key_frames
+
+
+_VTT_NOISE_RE = re.compile(
+    r"^(?:WEBVTT|\d+|\d{2,}:\d{2}(?::\d{2})?\.\d{3}\s+-->\s+\d{2,}:\d{2}(?::\d{2})?\.\d{3}(?:\s+.*)?)$",
+    flags=re.IGNORECASE,
+)
+
+
+def _is_vtt_noise(text: str) -> bool:
+    return bool(_VTT_NOISE_RE.fullmatch(text.strip()))
 
 
 def _split_transcript_into_steps(transcript_text: str) -> List[Dict]:
@@ -9,11 +20,13 @@ def _split_transcript_into_steps(transcript_text: str) -> List[Dict]:
     raw_parts = []
     for line in transcript_text.splitlines():
         line = line.strip()
-        if not line:
+        if not line or _is_vtt_noise(line):
             continue
         raw_parts.extend([p.strip() for p in line.split(".") if p.strip()])
     steps = []
     for idx, text in enumerate(raw_parts, start=1):
+        if _is_vtt_noise(text):
+            continue
         steps.append({"step_no": idx, "text": text, "source": "transcript"})
     return steps
 
@@ -86,6 +99,7 @@ def build_media_understanding_payload(evidence: Dict, input_manifest: Optional[D
 
     return {
         "transcript_text": transcript_text,
+        "transcript_format": evidence.get("transcript_format"),
         "transcript_steps": transcript_steps,
         "visual_events": visual_events,
         "key_frames": key_frames,

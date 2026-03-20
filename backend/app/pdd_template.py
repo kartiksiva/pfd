@@ -969,7 +969,7 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
             owner=row.get("escalation_path", "Needs Review"),
         )
         for row in (exceptions.get("exception_matrix", []) if isinstance(exceptions, dict) else [])[:6]
-    ] or ["| Needs Review | Needs Review | Needs Review | Needs Review |"]
+    ] or ["| No direct evidence found | No direct evidence found | No direct evidence found | No direct evidence found |"]
     exception_block = "\n".join(
         [
             "| Exception Scenario | Description | Action Required | Owner |",
@@ -994,7 +994,7 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
             )
         )
     if not controls_rows:
-        controls_rows = ["| C1 | Step 1 | Needs Review | Manual | Detective |"]
+        controls_rows = ["| C1 | Review Required | No direct evidence found | Manual | Detective |"]
     controls_block = "\n".join(
         [
             "| Control # | Process Step | Control Description | Manual / System | Preventive / Detective |",
@@ -1004,9 +1004,9 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
     )
     rendered = _replace_between(rendered, "## 5. Process Controls", "## 6. Approval Matrix", controls_block)
 
-    approval_rows = [f"| {label} | Needs Review |" for label in role_labels if label.lower() != "needs review"]
+    approval_rows = [f"| {label} | Review documented responsibilities and approvals. |" for label in role_labels if label.lower() != "needs review"]
     if not approval_rows:
-        approval_rows = ["| Needs Review | Needs Review |"]
+        approval_rows = ["| Review Required | No role evidence available |"]
     approval_block = "\n".join(["| Role | Responsibility |", "|------|----------------|", *approval_rows])
     rendered = _replace_between(rendered, "## 6. Approval Matrix", "## 7. Appendix", approval_block)
 
@@ -1047,9 +1047,7 @@ def render_custom_sop_markdown(document: Dict, sipoc: List[Dict]) -> str:
             tip=row.get("delivery_mode", "Needs Review"),
         )
         for idx, row in enumerate(training_rows[:3])
-    ] or [
-        "| 1 | Process overview | Needs Review |",
-    ]
+    ] or ["| 1 | Process overview | No direct evidence found |"]
     faq_block = "\n".join(["| # | Topic | Top Tips |", "|---|-------|----------|", *faq_rows])
     rendered = _replace_between(rendered, "### Frequently Asked Questions (FAQs)", "---", faq_block)
 

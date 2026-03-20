@@ -3,9 +3,10 @@ from typing import Dict
 from app.config import get_settings
 from app.pipelines.frame_extraction import extract_key_frame_images
 from app.pipelines.frame_selector import select_key_frames
-from app.providers.base import EvidencePayload, ProviderAdapter, has_audio_or_video, read_transcript_file
+from app.providers.base import EvidencePayload, ProviderAdapter, has_audio_or_video
 from app.providers.media_transcription import transcribe_with_azure_openai
 from app.providers.structured_extraction import extract_with_llm_detailed
+from app.transcript_utils import read_transcript_asset
 
 
 class AzureOpenAIAdapter(ProviderAdapter):
@@ -54,12 +55,12 @@ class AzureOpenAIAdapter(ProviderAdapter):
             )
 
     def transcribe(self, input_manifest: Dict, use_full_media: bool = False) -> str:
-        existing = read_transcript_file(input_manifest)
-        if existing:
-            return existing
+        transcript_asset = read_transcript_asset(input_manifest)
+        if transcript_asset and transcript_asset.text:
+            return transcript_asset.text
         # Azure OpenAI supports full media transcription.
         # We trigger it if requested or if we are in 'balanced' mode but no manual transcript exists.
-        if has_audio_or_video(input_manifest) and (use_full_media or not existing):
+        if has_audio_or_video(input_manifest) and (use_full_media or not transcript_asset):
             settings = get_settings()
             self._validate_transcription_config()
             try:
@@ -87,6 +88,7 @@ class AzureOpenAIAdapter(ProviderAdapter):
         use_full_media: bool = False,
     ) -> EvidencePayload:
         settings = get_settings()
+        transcript_asset = read_transcript_asset(input_manifest)
         candidates = []
         if input_manifest.get("video"):
             candidates.append({"source": "video", "action": "detect_visual_handoffs"})
@@ -141,6 +143,7 @@ class AzureOpenAIAdapter(ProviderAdapter):
         return EvidencePayload(
             provider=self.provider_name,
             transcript_text=transcript_text,
+            transcript_format=transcript_asset.format if transcript_asset else None,
             visual_events=visual_events,
             process_candidates=candidates,
             confidence=float(structured.get("confidence", 0.76)) if structured else (0.70 if candidates else 0.0),

@@ -28,7 +28,7 @@ def run_retention_sweep_once() -> dict:
             update_job_metadata(
                 db,
                 job,
-                artifacts={"md": None, "json": None, "pdf": None},
+                artifacts={"md": None, "json": None, "pdf": None, "docx": None},
                 progress={"stage": "expired", "percent": 100},
             )
             ok, _ = update_job_status(db, job, JobStatus.expired.value)

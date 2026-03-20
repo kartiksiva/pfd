@@ -139,6 +139,39 @@ def test_list_jobs_endpoint_returns_recent_jobs(tmp_path: Path):
     assert any(row["id"] == job_id for row in jobs)
 
 
+def test_end_to_end_webvtt_transcript_flow_records_normalized_metadata(tmp_path: Path):
+    client = create_authenticated_client()
+
+    transcript_path = tmp_path / "flow.vtt"
+    transcript_path.write_text(
+        "WEBVTT\n\n1\n00:00:00.000 --> 00:00:03.000\nPriya Nair: Customer submits complaint\n\n2\n00:00:03.000 --> 00:00:06.000\nAnalyst validates complaint\n",
+        encoding="utf-8",
+    )
+
+    with transcript_path.open("rb") as f:
+        create = client.post(
+            "/api/jobs",
+            files={"transcript_file": ("flow.vtt", f, "text/vtt")},
+            data={"provider": "google", "processing_profile": "balanced"},
+        )
+    assert create.status_code == 202
+    job_id = create.json()["data"]["job_id"]
+
+    for _ in range(15):
+        job = client.get(f"/api/jobs/{job_id}")
+        assert job.status_code == 200
+        payload = job.json()["data"]
+        if payload["status"] in {"needs_review", "failed", "completed"}:
+            break
+        time.sleep(0.2)
+
+    assert payload["status"] == "needs_review"
+    evidence = payload["progress"]["evidence"]
+    assert evidence["transcript_format"] == "webvtt"
+    assert "WEBVTT" not in evidence["transcript_text"]
+    assert "-->" not in evidence["transcript_text"]
+
+
 def test_persist_demo_inputs_copies_demo_media(tmp_path: Path):
     demo_dir = tmp_path / "Demo"
     demo_dir.mkdir()

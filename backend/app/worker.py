@@ -7,6 +7,7 @@ from app.database import SessionLocal
 from app.pipelines.document_generation import generate_document_from_extraction, generate_sipoc_rows
 from app.pipelines.media_understanding import build_media_understanding_payload
 from app.pipelines.process_extraction import extract_process_structure
+from app.pipelines.transcript_media_consistency import verify_transcript_media_consistency
 from app.pipelines.quality_checks import run_quality_checks
 from app.providers.factory import get_provider_adapter
 from app.repository import get_job, update_job_metadata, update_job_status
@@ -49,6 +50,16 @@ def _violates_cost_guardrail(job, usage: dict) -> bool:
     max_allowed = float(band.get("max", 0) or 0)
     current = float(usage.get("estimated_per_media_hour", 0) or 0)
     return max_allowed > 0 and current > max_allowed
+
+
+def _apply_consistency_confidence_penalty(confidence: float, consistency_result: dict) -> float:
+    verdict = str((consistency_result or {}).get("verdict", "")).strip().lower()
+    penalty = 0.0
+    if verdict == "inconclusive":
+        penalty = 0.10
+    elif verdict == "suspected_mismatch":
+        penalty = 0.30
+    return max(round(float(confidence or 0.0) - penalty, 2), 0.05)
 
 
 def process_job_async(job_id: str) -> None:
@@ -126,6 +137,7 @@ def process_job_async(job_id: str) -> None:
         evidence_dict = {
             "provider": result.evidence.provider,
             "transcript_text": result.evidence.transcript_text,
+            "transcript_format": getattr(result.evidence, "transcript_format", None),
             "visual_events": result.evidence.visual_events,
             "frame_images": getattr(result.evidence, "frame_images", []),
             "process_candidates": result.evidence.process_candidates,
@@ -134,6 +146,15 @@ def process_job_async(job_id: str) -> None:
             "structured_extraction_error": getattr(result.evidence, "structured_extraction_error", None),
             "structured_extraction_raw_preview": getattr(result.evidence, "structured_extraction_raw_preview", None),
         }
+        consistency_result = verify_transcript_media_consistency(
+            provider=execution_provider,
+            input_manifest=job.input_manifest,
+            transcript_text=result.evidence.transcript_text,
+        )
+        evidence_dict["transcript_media_consistency"] = consistency_result
+        evidence_dict["confidence"] = _apply_consistency_confidence_penalty(
+            evidence_dict.get("confidence", 0.0), consistency_result
+        )
         provider_execution = {
             "requested_provider": requested_provider,
             "executed_provider": execution_provider,
@@ -176,6 +197,10 @@ def process_job_async(job_id: str) -> None:
         )
 
         extraction = extract_process_structure(media_payload)
+        extraction["confidence"] = min(
+            float(extraction.get("confidence", evidence_dict.get("confidence", 0.0)) or 0.0),
+            float(evidence_dict.get("confidence", 0.0) or 0.0),
+        )
         evidence_dict["confidence"] = extraction.get("confidence", evidence_dict.get("confidence", 0.0))
 
         update_job_metadata(
@@ -237,6 +262,29 @@ def process_job_async(job_id: str) -> None:
             )
             review_notes.setdefault("assumptions", []).append(
                 "Structured extraction failed. Draft content may reflect safe fallback behavior and requires manual review."
+            )
+        consistency_verdict = str((consistency_result or {}).get("verdict", "")).strip().lower()
+        if consistency_verdict == "inconclusive":
+            review_notes.setdefault("flags", []).append(
+                {
+                    "type": "transcript_media_inconclusive",
+                    "path": "provider_execution.transcript_media_consistency",
+                    "message": "Uploaded transcript could not be confidently matched to uploaded media.",
+                }
+            )
+            review_notes.setdefault("assumptions", []).append(
+                "Transcript and media alignment is inconclusive. Manually verify the uploaded pair before finalization."
+            )
+        elif consistency_verdict == "suspected_mismatch":
+            review_notes.setdefault("flags", []).append(
+                {
+                    "type": "transcript_media_mismatch_suspected",
+                    "path": "provider_execution.transcript_media_consistency",
+                    "message": "Uploaded transcript appears to differ materially from uploaded media.",
+                }
+            )
+            review_notes.setdefault("assumptions", []).append(
+                "Transcript and media may not belong together. Confirm the correct transcript before finalization."
             )
 
         update_job_metadata(

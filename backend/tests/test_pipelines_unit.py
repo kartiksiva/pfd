@@ -36,6 +36,30 @@ MARKDOWN_TRANSCRIPT = """
 """.strip()
 
 
+RAW_VTT_TRANSCRIPT = """WEBVTT
+
+1
+00:00:00.000 --> 00:00:04.000
+Daniel Brooks (Service Provider): Thanks, everyone.
+
+2
+00:00:04.000 --> 00:00:08.000
+Priya Nair (Customer): A complaint can come in through email, web form, customer support portal, or occasionally by phone.
+
+3
+00:00:08.000 --> 00:00:12.000
+Meera Iyer (Service Provider): What happens if information is missing?
+
+4
+00:00:12.000 --> 00:00:18.000
+Priya Nair: The analyst sends a template email asking for additional details.
+
+5
+00:00:18.000 --> 00:00:24.000
+Meera Iyer: We would also recommend automated reminders for pending customer information.
+""".strip()
+
+
 def _sample_extraction():
     return {
         "process_steps": [
@@ -158,6 +182,48 @@ def test_extract_process_structure_blocks_naive_fallback_for_markdown_transcript
     assert extraction["process_steps"] == []
     assert extraction["confidence"] == 0.0
     assert "Structured extraction was unavailable" in extraction["purpose"]
+
+
+def test_extract_process_structure_cleans_raw_vtt_and_drops_prompt_and_future_state_windows():
+    extraction = extract_process_structure(
+        {
+            "merged_steps": [
+                {"summary": "WEBVTT", "sources": ["transcript"], "confidence": 0.4},
+                {"summary": "1", "sources": ["transcript"], "confidence": 0.4},
+                {"summary": "00:00:00.000 --> 00:00:04.000", "sources": ["transcript"], "confidence": 0.4},
+                {"summary": "Daniel Brooks (Service Provider): Thanks, everyone.", "sources": ["transcript"], "confidence": 0.5},
+                {
+                    "summary": "Priya Nair (Customer): A complaint can come in through email, web form, customer support portal, or occasionally by phone.",
+                    "sources": ["transcript"], "confidence": 0.8,
+                },
+                {
+                    "summary": "Meera Iyer: What happens if information is missing?",
+                    "sources": ["transcript"], "confidence": 0.6,
+                },
+                {
+                    "summary": "Priya Nair: The analyst sends a template email asking for additional details.",
+                    "sources": ["transcript"], "confidence": 0.8,
+                },
+                {
+                    "summary": "Meera Iyer: We would also recommend automated reminders for pending customer information.",
+                    "sources": ["transcript"], "confidence": 0.6,
+                },
+            ],
+            "transcript_text": RAW_VTT_TRANSCRIPT,
+            "transcript_format": "webvtt",
+            "confidence": 0.7,
+        }
+    )
+
+    summaries = [step["summary"] for step in extraction["process_steps"]]
+    joined = " ".join(summaries)
+    assert "WEBVTT" not in joined
+    assert "-->" not in joined
+    assert "00:00:00.000" not in joined
+    assert "What happens if information is missing?" not in joined
+    assert "automated reminders" not in joined
+    assert any("complaint can come in through email" in summary.lower() for summary in summaries)
+    assert any("analyst sends a template email" in summary.lower() for summary in summaries)
 
 
 def test_generate_document_from_extraction_avoids_generic_step_title_for_sop_title():
@@ -342,6 +408,47 @@ def test_generate_document_from_extraction_custom_sop_preserves_explicit_evidenc
     assert doc["document_control"]["process_owner"] == "Complaint Intake Analyst"
     assert doc["purpose"] == "Document current process flow from submitted evidence"
     assert doc["scope"]["out_of_scope"][0] == "Activities outside the documented current-state process boundary."
+
+
+def test_generate_document_from_extraction_custom_sop_drops_generic_analyst_when_specific_role_exists():
+    extraction = {
+        "process_name": "Customer Complaint Intake and Assignment",
+        "process_steps": [
+            {
+                "step_no": 1,
+                "title": "Validate Complaint",
+                "summary": "Analyst validates complaint details in CRM.",
+                "role": "Analyst",
+                "system": "CRM",
+                "input": "Complaint record",
+                "output": "Validated complaint",
+            }
+        ],
+        "roles": ["Analyst", "Customer Service Analyst", "Compliance Team"],
+        "systems": ["CRM"],
+        "business_rules": [],
+        "exceptions": [],
+        "outputs": [],
+        "metrics": [],
+        "risks": [],
+        "operational_facts": {
+            "frequency": "Daily",
+            "volumes_or_frequency": [],
+            "sla_targets": [],
+            "routing_rules": [],
+            "control_requirements": [],
+            "governance_notes": [],
+            "quantified_pain_points": [],
+            "systems": ["CRM"],
+            "teams": ["Customer Service Analyst", "Compliance Team"],
+            "exception_details": [],
+        },
+    }
+
+    doc = generate_document_from_extraction(extraction, document_type="custom_sop", frame_images=[])
+    roles = [row["role"] for row in doc["roles_and_responsibilities"]]
+    assert "Customer Service Analyst" in roles
+    assert "Analyst" not in roles
 
 
 def test_generate_document_from_extraction_discards_transcript_scope_overreach_and_weak_review_control():
@@ -588,27 +695,15 @@ def test_generate_document_from_extraction_custom_sop_stays_generic_for_non_doma
     rendered_text = str(doc)
     assert "complaint" not in rendered_text.lower()
     assert doc["document_control"]["department"] == "Needs Review"
-    assert doc["custom_sop_summary"]["inputs"] == [
-        "RPA Challenge web page",
-        "Downloaded Excel spreadsheet",
-        "Active web form",
-        "Excel data row and field mapping",
-        "Populated web form",
-        "Remaining Excel data",
-        "Challenge completion event",
-    ]
+    assert doc["custom_sop_summary"]["inputs"] == ["Challenge web page", "Excel input file", "Populated form"]
     assert doc["custom_sop_summary"]["outputs"] == [
-        "Downloaded Excel spreadsheet",
+        "Excel input file",
         "Challenge timer starts",
-        "Field mapping for current round",
-        "Populated web form",
         "Form submission confirmation",
-        "All items submitted",
-        "Completion time result",
     ]
 
 
-def test_generate_document_from_extraction_expands_rpa_challenge_steps_and_aligns_media():
+def test_generate_document_from_extraction_keeps_explicit_rpa_steps_without_hardcoded_expansion():
     extraction = {
         "process_name": "RPA Challenge Data Entry",
         "process_steps": [
@@ -658,24 +753,36 @@ def test_generate_document_from_extraction_expands_rpa_challenge_steps_and_align
 
     doc = generate_document_from_extraction(extraction, document_type="custom_sop", frame_images=frames)
     step_titles = [step["title"] for step in doc["steps"]]
-    assert step_titles == [
-        "Download Input Spreadsheet",
-        "Start Challenge",
-        "Identify Field Positions",
-        "Input Data into Form",
-        "Submit Form",
-        "Repeat for All Items",
-        "Capture Completion Time",
-    ]
+    assert step_titles == ["Download Input Spreadsheet", "Populate Dynamic Form"]
     assert [step["source_timestamp"] for step in doc["steps"]] == [
         "00:00:00",
-        "00:00:12",
-        "00:00:24",
-        "00:00:44",
-        "00:01:00",
-        "00:01:12",
         "00:01:28",
     ]
+
+
+def test_generate_document_from_extraction_marks_fragmented_custom_sop_for_review():
+    extraction = {
+        "process_name": "WEBVTT",
+        "process_steps": [
+            {"step_no": 1, "title": "WEBVTT", "summary": "WEBVTT", "role": "Operator", "system": "manual_or_unspecified"},
+            {"step_no": 2, "title": "1", "summary": "1", "role": "Operator", "system": "manual_or_unspecified"},
+            {
+                "step_no": 3,
+                "title": "What happens if information is missing?",
+                "summary": "What happens if information is missing?",
+                "role": "Analyst",
+                "system": "manual_or_unspecified",
+            },
+        ],
+        "roles": ["Analyst"],
+        "systems": ["manual_or_unspecified"],
+        "operational_facts": {"frequency": "", "volumes_or_frequency": [], "sla_targets": [], "routing_rules": [], "control_requirements": [], "governance_notes": [], "quantified_pain_points": [], "systems": [], "teams": [], "exception_details": []},
+    }
+
+    doc = generate_document_from_extraction(extraction, document_type="custom_sop", frame_images=[])
+    assert doc["review_required"] is True
+    assert doc["steps"] == []
+    assert any("no supported process steps" in note.lower() for note in doc["review_notes"])
 
 
 def test_quality_checks_flag_lost_operational_facts():

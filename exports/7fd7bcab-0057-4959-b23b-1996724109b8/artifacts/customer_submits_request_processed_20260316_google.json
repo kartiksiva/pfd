@@ -1,0 +1,112 @@
+{
+  "document_type": "pdd",
+  "document": {
+    "purpose": "Document current process flow from submitted evidence.",
+    "scope": "Current-state process only.",
+    "triggers": [
+      "Process initiation event captured from evidence."
+    ],
+    "preconditions": [
+      "Relevant source material is available."
+    ],
+    "steps": [
+      {
+        "step_no": 1,
+        "title": "Customer submits request",
+        "actor": "customer",
+        "system": "manual_or_unspecified",
+        "description": "Customer submits request",
+        "input": "process input",
+        "output": "Customer submits request",
+        "exception": "",
+        "source_timestamp": "",
+        "screenshot": null
+      },
+      {
+        "step_no": 2,
+        "title": "Analyst validates request",
+        "actor": "analyst",
+        "system": "manual_or_unspecified",
+        "description": "Analyst validates request",
+        "input": "process input",
+        "output": "Analyst validates request",
+        "exception": "",
+        "source_timestamp": "",
+        "screenshot": null
+      },
+      {
+        "step_no": 3,
+        "title": "System updates ticket",
+        "actor": "system",
+        "system": "ticketing_system",
+        "description": "System updates ticket",
+        "input": "process input",
+        "output": "System updates ticket",
+        "exception": "",
+        "source_timestamp": "",
+        "screenshot": null
+      },
+      {
+        "step_no": 4,
+        "title": "Customer submits request\nAnalyst validates request\nSystem up...",
+        "actor": "customer",
+        "system": "ticketing_system",
+        "description": "Customer submits request\nAnalyst validates request\nSystem updates ticket",
+        "input": "process input",
+        "output": "Customer submits request\nAnalyst validates request\nSystem updates ticket",
+        "exception": "",
+        "source_timestamp": "",
+        "screenshot": null
+      }
+    ],
+    "roles": [
+      "analyst",
+      "customer",
+      "system",
+      "Customer Service Analyst"
+    ],
+    "systems": [
+      "manual_or_unspecified",
+      "ticketing_system"
+    ],
+    "business_rules": [],
+    "exceptions": [],
+    "outputs": [
+      "Analyst validates request",
+      "System updates ticket",
+      "Customer submits request Analyst validates request System updates ticket"
+    ],
+    "metrics": [],
+    "risks": []
+  },
+  "sipoc": [
+    {
+      "supplier": "upstream_supplier",
+      "input": "process trigger",
+      "process_step": "Customer submits request",
+      "output": "Customer submits request",
+      "customer": "analyst"
+    },
+    {
+      "supplier": "analyst",
+      "input": "Customer submits request",
+      "process_step": "Analyst validates request",
+      "output": "Analyst validates request",
+      "customer": "system"
+    },
+    {
+      "supplier": "system",
+      "input": "Analyst validates request",
+      "process_step": "System updates ticket",
+      "output": "System updates ticket",
+      "customer": "customer"
+    },
+    {
+      "supplier": "customer",
+      "input": "System updates ticket",
+      "process_step": "Customer submits request\nAnalyst validates request\nSystem updates ticket",
+      "output": "Customer submits request\nAnalyst validates request\nSystem updates ticket",
+      "customer": "downstream_customer"
+    }
+  ]
+}

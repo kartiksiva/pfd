@@ -75,39 +75,18 @@ Frontend (`frontend/.env.local`):
    - no markdown markers
 8. Validate PDF reflects DOCX structure
 
+## Recent Successes (March 2026)
+- **Azure OpenAI Integration:** Fixed URL pathing, headers (`api-key`), and API versioning.
+- **Template Consolidation:** Moved all `.md` templates to `backend/app/templates/` for Docker-safe pathing.
+- **`custom_sop` Hardening:** 
+  - UI now renders the full document using robust fallback strings.
+  - Export spacing fixed via explicit "Compact Meta" paragraph styling in `export_service.py`.
+- **Docker Alignment:** Fixed `docker-compose.yml` volume mounts to match the new template directory.
+
 ## Known Limitations
 - Native audio/video transcription is still scaffolded in adapters for some flows.
 - Best quality currently achieved with transcript input present.
 - Ollama health may fail if local daemon/model is not running.
-
-## Active Issue: `custom_sop` Export Spacing
-- Feature status:
-  - `document_template=custom_sop` is implemented.
-  - Markdown rendering uses root template: `Custom_SOP_Template.md`.
-  - `custom_sop` finalization validates against SOP contract.
-- Current user-facing issue:
-  - Exported `docx/pdf` for `custom_sop` still shows excessive vertical spacing around the top header/meta block (e.g., between title/process name/function/sub-function/date).
-  - This persists even after removing explicit blank-line paragraph inserts in markdown->DOCX conversion.
-- Relevant code paths:
-  - Template rendering: `backend/app/pdd_template.py` (`render_custom_sop_markdown`)
-  - Export orchestration: `backend/app/export_service.py` (`generate_exports`)
-  - Markdown->DOCX converter: `backend/app/export_service.py` (`_render_docx_from_markdown`)
-  - PDF is generated from DOCX (`_render_pdf_from_docx`), so DOCX layout propagates to PDF.
-- Changes already made:
-  - Added `custom_sop` template option across API/UI and generation paths.
-  - Added `custom_sop` markdown renderer with placeholder hardening and section population.
-  - Routed `custom_sop` exports through markdown->DOCX path.
-  - Suppressed explicit empty paragraph creation on blank lines and `---` in markdown->DOCX conversion.
-  - Added/updated tests; backend test suite in scope currently passes.
-- Likely root cause for next fix:
-  - DOCX paragraph style defaults (space-before/space-after/line spacing) for generated paragraphs are still too large.
-  - Potential heading/list style inheritance from `python-docx` defaults for markdown-converted blocks.
-- Recommended next action:
-  - In `_render_docx_from_markdown`, set paragraph formatting explicitly for generated paragraphs/headings/lists:
-    - `space_before = 0`
-    - `space_after = 0` (or small controlled values)
-    - controlled `line_spacing`
-  - Re-export a fresh `custom_sop` job and verify both `.docx` and `.pdf`.
 
 ## Important Files
 - API entry: `backend/app/main.py`

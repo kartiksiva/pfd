@@ -1,0 +1,265 @@
+{
+  "document_type": "custom_sop",
+  "document": {
+    "document_control": {
+      "sop_id": "SOP-OPS-001-Docu",
+      "sop_title": "Start",
+      "process_owner": "analyst",
+      "department": "manual_or_unspecified",
+      "effective_date": "15-Mar-2026",
+      "review_date": "Needs Review",
+      "version": "1.0",
+      "classification": "Internal",
+      "source_reference": "Generated from uploaded transcript/audio/video evidence"
+    },
+    "revision_history": [
+      {
+        "version": "1.0",
+        "date": "Needs Review",
+        "author": "PFCD Agent",
+        "change_summary": "Initial Draft",
+        "approved_by": "Needs Review"
+      }
+    ],
+    "purpose": "Document current process flow from submitted evidence.",
+    "scope": {
+      "in_scope": [
+        "Current-state process only."
+      ],
+      "out_of_scope": [
+        "Future-state redesign and optimization."
+      ],
+      "regions_entities": [
+        {
+          "region_entity": "Needs Review",
+          "applicable": "Needs Review",
+          "notes": "Needs Review"
+        }
+      ]
+    },
+    "roles_and_responsibilities": [
+      {
+        "role": "analyst",
+        "responsibility": "Execute assigned steps",
+        "team_location": "Needs Review"
+      },
+      {
+        "role": "operator",
+        "responsibility": "Execute assigned steps",
+        "team_location": "Needs Review"
+      }
+    ],
+    "definitions": [
+      {
+        "term": "SOP",
+        "definition": "Standard Operating Procedure"
+      },
+      {
+        "term": "SLA",
+        "definition": "Service Level Agreement"
+      }
+    ],
+    "prerequisites_and_inputs": {
+      "system_access_required": [
+        {
+          "system": "manual_or_unspecified",
+          "access_level": "Needs Review",
+          "url_path": "Needs Review"
+        }
+      ],
+      "input_documents_data": [
+        {
+          "input": "Process initiation event captured from evidence.",
+          "source": "Source evidence",
+          "format": "Needs Review",
+          "frequency": "Needs Review"
+        }
+      ],
+      "knowledge_skills_required": [
+        "Needs Review"
+      ]
+    },
+    "process_overview": {
+      "flow_summary": "Start -> Validate -> Complete -> Start\nValidate\nComplete",
+      "metrics_at_glance": [
+        {
+          "metric": "SLA / TAT",
+          "target": "Needs Review"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "step_no": 1,
+        "title": "Start",
+        "actor": "operator",
+        "system": "manual_or_unspecified",
+        "description": "Start",
+        "input": "process input",
+        "output": "Start",
+        "exception": "",
+        "source_timestamp": "",
+        "screenshot": null
+      },
+      {
+        "step_no": 2,
+        "title": "Validate",
+        "actor": "analyst",
+        "system": "manual_or_unspecified",
+        "description": "Validate",
+        "input": "process input",
+        "output": "Validate",
+        "exception": "",
+        "source_timestamp": "",
+        "screenshot": null
+      },
+      {
+        "step_no": 3,
+        "title": "Complete",
+        "actor": "operator",
+        "system": "manual_or_unspecified",
+        "description": "Complete",
+        "input": "process input",
+        "output": "Complete",
+        "exception": "",
+        "source_timestamp": "",
+        "screenshot": null
+      },
+      {
+        "step_no": 4,
+        "title": "Start\nValidate\nComplete",
+        "actor": "analyst",
+        "system": "manual_or_unspecified",
+        "description": "Start\nValidate\nComplete",
+        "input": "process input",
+        "output": "Start\nValidate\nComplete",
+        "exception": "",
+        "source_timestamp": "",
+        "screenshot": null
+      }
+    ],
+    "quality_checks": {
+      "checks": [
+        {
+          "check_id": "QC-01",
+          "what_to_validate": "Output correctness",
+          "how_to_validate": "Review against expected output",
+          "done_by": "Needs Review",
+          "frequency": "Needs Review"
+        }
+      ],
+      "operator_checklist": [
+        "Output saved to correct system",
+        "Case/ticket updated with completion status"
+      ]
+    },
+    "exception_handling": {
+      "exception_matrix": [
+        {
+          "exception_id": "EXC-01",
+          "scenario": "Needs Review",
+          "trigger_symptom": "Observed during process execution",
+          "action_to_take": "Investigate, retry if safe, and escalate if persistent",
+          "escalation_path": "Operator -> Team Lead"
+        }
+      ],
+      "escalation_matrix": [
+        {
+          "level": "L1",
+          "trigger_condition": "Operator cannot resolve",
+          "contact": "Team Lead",
+          "response_time": "30 min"
+        }
+      ]
+    },
+    "sla_and_performance_targets": [
+      {
+        "kpi": "Accuracy Rate",
+        "definition": "Completed steps without error",
+        "target": "Needs Review",
+        "measurement_method": "QC review"
+      },
+      {
+        "kpi": "Turnaround Time",
+        "definition": "Time from trigger to completion",
+        "target": "Needs Review",
+        "measurement_method": "System timestamps"
+      }
+    ],
+    "tools_and_systems_reference": [
+      {
+        "tool_system": "manual_or_unspecified",
+        "purpose": "Process execution support",
+        "version_module": "Unknown",
+        "access_request_process": "Needs Review"
+      }
+    ],
+    "training_and_kt": {
+      "training_requirements": [
+        {
+          "training_module": "Process overview",
+          "delivery_mode": "Needs Review",
+          "duration": "Needs Review",
+          "frequency": "Onboarding"
+        }
+      ],
+      "transition_readiness": [
+        {
+          "milestone": "Shadow",
+          "criteria": "Observe live transactions",
+          "status": "Pending"
+        }
+      ]
+    },
+    "controls_and_compliance": {
+      "controls": [
+        {
+          "control": "Process checklist completion",
+          "type": "Detective",
+          "description": "Confirm all critical steps complete",
+          "evidence_required": "Checklist"
+        }
+      ],
+      "policies": [
+        "Needs Review"
+      ]
+    },
+    "related_documents": [
+      {
+        "document": "SIPOC",
+        "type": "Reference",
+        "location": "Included in export"
+      }
+    ]
+  },
+  "sipoc": [
+    {
+      "supplier": "upstream_supplier",
+      "input": "process trigger",
+      "process_step": "Start",
+      "output": "Start",
+      "customer": "analyst"
+    },
+    {
+      "supplier": "analyst",
+      "input": "Start",
+      "process_step": "Validate",
+      "output": "Validate",
+      "customer": "operator"
+    },
+    {
+      "supplier": "operator",
+      "input": "Validate",
+      "process_step": "Complete",
+      "output": "Complete",
+      "customer": "analyst"
+    },
+    {
+      "supplier": "analyst",
+      "input": "Complete",
+      "process_step": "Start\nValidate\nComplete",
+      "output": "Start\nValidate\nComplete",
+      "customer": "downstream_customer"
+    }
+  ]
+}

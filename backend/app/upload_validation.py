@@ -20,6 +20,7 @@ AUDIO_MIME_TYPES = {
     "audio/mp4a-latm",
 }
 TRANSCRIPT_MIME_TYPES = {"text/plain", "text/markdown", "application/pdf"}
+TRANSCRIPT_MIME_TYPES.add("text/vtt")
 
 
 class ValidationError(Exception):

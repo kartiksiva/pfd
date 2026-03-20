@@ -1,6 +1,8 @@
 import re
 from typing import Dict, List
 
+from app.transcript_utils import normalize_transcript_text
+
 
 INTERNAL_ACTION_LABELS = {
     "segment_process_frames",
@@ -9,6 +11,32 @@ INTERNAL_ACTION_LABELS = {
     "detect_visual_handoffs",
     "extract_spoken_steps",
 }
+VTT_NOISE_PATTERNS = [
+    re.compile(r"^webvtt$", flags=re.IGNORECASE),
+    re.compile(r"^\d+$"),
+    re.compile(r"^\d{2,}:\d{2}(?::\d{2})?\.\d{3}\s+-->\s+\d{2,}:\d{2}(?::\d{2})?\.\d{3}(?:\s+.*)?$", flags=re.IGNORECASE),
+]
+TRANSCRIPT_MARKDOWN_NOISE_PATTERNS = [
+    re.compile(r"^#+\s+.*$"),
+    re.compile(r"^\*\*[\d:]+\s*-\s*[\d:]+\*\*$"),
+    re.compile(r"^(session overview|participants|transcript)$", flags=re.IGNORECASE),
+]
+STEP_NOISE_PATTERNS = [
+    re.compile(r"^webvtt$", flags=re.IGNORECASE),
+    re.compile(r"^\d+$"),
+    re.compile(r"^\d{2}:\d{2}(?::\d{2})?$"),
+    re.compile(r"^\d{2}:\d{2}(?::\d{2})?\.\d{3}$"),
+    re.compile(r"^\d{2}:\d{2}(?::\d{2})?\s*-->\s*\d{2}:\d{2}(?::\d{2})?$", flags=re.IGNORECASE),
+    re.compile(r"^\d{2}:\d{2}(?::\d{2})?\.\d{3}\s*-->\s*\d{2}:\d{2}(?::\d{2})?\.\d{3}(?:\s+.*)?$", flags=re.IGNORECASE),
+]
+SPEAKER_LABEL_RE = re.compile(
+    r"^(?:\*{0,2})?(?:[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.&()/:-]+){0,5})(?:\s*\([^)]+\))?\s*:\s*"
+)
+
+
+def _is_vtt_noise(text: str) -> bool:
+    cleaned = str(text or "").strip()
+    return any(pattern.fullmatch(cleaned) for pattern in VTT_NOISE_PATTERNS)
 
 
 def _is_internal_action_label(text: str) -> bool:
@@ -23,6 +51,8 @@ def _is_internal_action_label(text: str) -> bool:
 def _normalize_step_summary(summary: str, source: str = "") -> str:
     cleaned = summary.strip()
     if not cleaned:
+        return ""
+    if _is_vtt_noise(cleaned):
         return ""
     if not _is_internal_action_label(cleaned):
         return cleaned
@@ -53,6 +83,20 @@ def _infer_role(summary: str) -> str:
     text = summary.lower()
     if "customer" in text:
         return "customer"
+    if "analyst" in text:
+        complaint_markers = [
+            "complaint",
+            "crm",
+            "shared mailbox",
+            "phone log",
+            "categor",
+            "assign",
+            "triage",
+            "acknowledg",
+        ]
+        if any(marker in text for marker in complaint_markers):
+            return "customer_service_analyst"
+        return "analyst"
     if "validate" in text or "approve" in text:
         return "analyst"
     if "system" in text or "ui" in text:
@@ -93,14 +137,47 @@ def _clean_sentence(text: str) -> str:
     return cleaned.strip(" .")
 
 
+def _clean_transcript_segment(text: str) -> str:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return ""
+    if _is_vtt_noise(cleaned) or any(pattern.fullmatch(cleaned) for pattern in TRANSCRIPT_MARKDOWN_NOISE_PATTERNS):
+        return ""
+    cleaned = re.sub(r"^\*\*[\d:]+\s*-\s*[\d:]+\*\*\s*", "", cleaned)
+    cleaned = re.sub(r"^\s*[-*]\s*", "", cleaned)
+    for _ in range(3):
+        updated = SPEAKER_LABEL_RE.sub("", cleaned, count=1)
+        if updated == cleaned:
+            break
+        cleaned = updated.strip()
+    cleaned = _clean_sentence(cleaned)
+    if any(pattern.fullmatch(cleaned) for pattern in STEP_NOISE_PATTERNS):
+        return ""
+    return cleaned
+
+
+def _normalized_transcript_text(transcript_text: str, transcript_format: str = "") -> str:
+    format_hint = str(transcript_format or "").strip().lower()
+    filename = "transcript.vtt" if format_hint == "webvtt" else ""
+    normalized = normalize_transcript_text(str(transcript_text or ""), filename=filename)
+    return normalized.text if normalized.text else str(transcript_text or "")
+
+
 def _sentence_windows(transcript_text: str) -> List[str]:
     windows = []
     for block in re.split(r"\n\s*\n", transcript_text or ""):
-        candidate = _clean_sentence(block)
-        if not candidate:
+        lines = [line.strip() for line in str(block).splitlines() if line.strip()]
+        if not lines:
+            candidate = _clean_transcript_segment(block)
+            if not candidate:
+                continue
+            windows.append(candidate)
             continue
-        candidate = re.sub(r"^\*\*[\d:]+\s*-\s*[\d:]+\*\*\s*", "", candidate)
-        windows.append(candidate)
+        for line in lines:
+            candidate = _clean_transcript_segment(line)
+            if not candidate:
+                continue
+            windows.append(candidate)
     return windows
 
 
@@ -119,6 +196,19 @@ def _looks_like_transcript_markdown(transcript_text: str) -> bool:
     return hits >= 2
 
 
+def _looks_like_raw_webvtt(transcript_text: str) -> bool:
+    text = str(transcript_text or "")
+    if not text.strip():
+        return False
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return False
+    if lines[0] == "WEBVTT":
+        return True
+    timestamp_hits = sum(1 for line in lines if _is_vtt_noise(line) and "-->" in line)
+    return timestamp_hits >= 2
+
+
 def _contains_any(text: str, needles: List[str]) -> bool:
     lowered = text.lower()
     return any(needle in lowered for needle in needles)
@@ -130,6 +220,12 @@ def _is_future_state_window(text: str) -> bool:
         "future-state",
         "would it be acceptable",
         "we would also recommend",
+        "recommend",
+        "recommended future state",
+        "proposed",
+        "proposed automation",
+        "ideally",
+        "would be nice if",
         "would solve a lot",
         "automation candidate",
         "candidate for automation",
@@ -146,7 +242,17 @@ def _is_future_state_window(text: str) -> bool:
 def _is_prompt_like_window(text: str) -> bool:
     lowered = text.lower().strip()
     prompts = [
+        "tell me more about",
+        "walk us through",
+        "what causes this process to begin",
         "what happens if",
+        "what systems are involved",
+        "how do you handle",
+        "how is work assigned",
+        "based on what logic",
+        "what's the next step",
+        "lets start with the trigger",
+        "let’s start with the trigger",
         "let’s validate the biggest pain points",
         "lets validate the biggest pain points",
         "approximately how many",
@@ -156,6 +262,91 @@ def _is_prompt_like_window(text: str) -> bool:
         "anything missing",
     ]
     return lowered.endswith("?") or any(prompt in lowered for prompt in prompts)
+
+
+def _is_step_noise_fragment(text: str) -> bool:
+    cleaned = _clean_transcript_segment(text)
+    if not cleaned:
+        return True
+    lowered = cleaned.lower()
+    if len(cleaned) < 5:
+        return True
+    if any(pattern.fullmatch(cleaned) for pattern in STEP_NOISE_PATTERNS):
+        return True
+    if "-->" in cleaned or lowered == "webvtt":
+        return True
+    if _is_prompt_like_window(cleaned) or _is_future_state_window(cleaned):
+        return True
+    return False
+
+
+def _is_continuation_fragment(text: str) -> bool:
+    cleaned = _clean_transcript_segment(text)
+    if not cleaned:
+        return False
+    lowered = cleaned.lower()
+    prefixes = (
+        "and ",
+        "but ",
+        "then ",
+        "also ",
+        "there ",
+        "for ",
+        "if ",
+        "after ",
+        "because ",
+        "which ",
+        "provided ",
+    )
+    return cleaned[:1].islower() or lowered.startswith(prefixes)
+
+
+def _sanitize_step_rows(process_steps: List[Dict]) -> List[Dict]:
+    sanitized: List[Dict] = []
+    for row in process_steps:
+        title = _clean_transcript_segment(str(row.get("title", "")))
+        summary = _clean_transcript_segment(str(row.get("summary", "")))
+        if _is_step_noise_fragment(title) and _is_step_noise_fragment(summary):
+            continue
+        if _is_step_noise_fragment(summary):
+            summary = title
+        if _is_step_noise_fragment(title):
+            title = summary[:60].strip() if summary else ""
+        if not summary:
+            continue
+        if _is_prompt_like_window(summary) or _is_future_state_window(summary):
+            continue
+        cleaned = dict(row)
+        cleaned["summary"] = summary
+        cleaned["title"] = title or summary[:60]
+        sanitized.append(cleaned)
+    return sanitized
+
+
+def _group_operational_steps(process_steps: List[Dict]) -> List[Dict]:
+    if not process_steps:
+        return []
+    grouped: List[Dict] = []
+    for row in process_steps:
+        current = dict(row)
+        if not grouped:
+            grouped.append(current)
+            continue
+        previous = grouped[-1]
+        same_role = str(previous.get("role", "")).strip().lower() == str(current.get("role", "")).strip().lower()
+        same_system = str(previous.get("system", "")).strip().lower() == str(current.get("system", "")).strip().lower()
+        if same_role and same_system and _is_continuation_fragment(str(current.get("summary", ""))):
+            prev_summary = _clean_sentence(str(previous.get("summary", "")))
+            curr_summary = _clean_sentence(str(current.get("summary", "")))
+            if curr_summary and curr_summary.lower() not in prev_summary.lower():
+                previous["summary"] = f"{prev_summary}. {curr_summary}".strip(". ")
+                if str(previous.get("output", "")).strip().lower() in {"", "process input", prev_summary.lower()}:
+                    previous["output"] = previous["summary"]
+            continue
+        grouped.append(current)
+    for idx, row in enumerate(grouped, start=1):
+        row["step_no"] = idx
+    return grouped
 
 
 def _derive_generic_triggers(transcript_text: str, extraction: Dict) -> List[str]:
@@ -237,7 +428,7 @@ def _derive_operational_facts(transcript_text: str, extraction: Dict) -> Dict:
     teams = []
     team_patterns = {
         "Customer Service Analyst": ["analyst", "analysts"],
-        "Call Center Agent": ["call team", "agent", "call center"],
+        "Call Center Agent": ["call team", "call center", "phone complaints are manually documented"],
         "Billing Operations": ["billing operations"],
         "Product Support": ["product support"],
         "Field Service": ["field service"],
@@ -246,6 +437,8 @@ def _derive_operational_facts(transcript_text: str, extraction: Dict) -> Dict:
     }
 
     for window in windows:
+        if _is_future_state_window(window) or _is_prompt_like_window(window):
+            continue
         lowered = window.lower()
         for system_name, needles in system_patterns.items():
             if _contains_any(lowered, needles):
@@ -268,12 +461,10 @@ def _derive_operational_facts(transcript_text: str, extraction: Dict) -> Dict:
         if any(term in lowered for term in ["audit trail", "regulatory response timelines", "compliance standpoint", "retention requirements"]):
             facts["control_requirements"].append(window)
             facts["governance_notes"].append(window)
-        if not _is_future_state_window(window) and ("evidence checklist" in lowered or "standardized acknowledgment templates" in lowered or "automated reminders" in lowered):
-            facts["control_requirements"].append(window)
 
         if any(term in lowered for term in ["complaint type", "product line", "region", "customer tier", "strategic customers", "escalated accounts", "copied to compliance"]):
             facts["routing_rules"].append(window)
-        if not _is_prompt_like_window(window) and any(term in lowered for term in ["missing", "misclass", "wrong team", "bounce around", "does not respond", "other category", "attachments come in different formats"]):
+        if any(term in lowered for term in ["missing", "misclass", "wrong team", "bounce around", "does not respond", "other category", "attachments come in different formats"]):
             facts["exception_details"].append(window)
         if re.search(r"\b\d+\s*percent\b", lowered) or re.search(r"\b\d+\s*(?:to|-)\s*\d+\s+minutes?\b", lowered) or "high-volume" in lowered:
             facts["quantified_pain_points"].append(window)
@@ -348,6 +539,7 @@ def _normalize_structured_extraction(structured: Dict, fallback_confidence: floa
             )
 
     process_steps = sorted(process_steps, key=lambda row: row["step_no"])
+    process_steps = _group_operational_steps(_sanitize_step_rows(process_steps))
     handoffs = []
     for i in range(1, len(process_steps)):
         prev_role = process_steps[i - 1]["role"]
@@ -385,12 +577,15 @@ def _normalize_structured_extraction(structured: Dict, fallback_confidence: floa
 
 
 def extract_process_structure(media_payload: Dict) -> Dict:
+    transcript_text = _normalized_transcript_text(
+        str(media_payload.get("transcript_text", "") or ""),
+        transcript_format=str(media_payload.get("transcript_format", "") or ""),
+    )
     structured = media_payload.get("structured_extraction")
     if isinstance(structured, dict) and structured.get("process_steps"):
         normalized = _normalize_structured_extraction(structured, fallback_confidence=float(media_payload.get("confidence", 0.0)))
-        return _enrich_extraction_with_operational_facts(normalized, str(media_payload.get("transcript_text", "") or ""))
+        return _enrich_extraction_with_operational_facts(normalized, transcript_text)
 
-    transcript_text = str(media_payload.get("transcript_text", "") or "")
     if _looks_like_transcript_markdown(transcript_text):
         base = {
             "process_steps": [],
@@ -445,6 +640,7 @@ def extract_process_structure(media_payload: Dict) -> Dict:
                 "exception": "",
             }
         )
+    process_steps = _group_operational_steps(_sanitize_step_rows(process_steps))
 
     handoffs = []
     for i in range(1, len(process_steps)):
