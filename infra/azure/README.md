@@ -24,11 +24,13 @@ export FRONTEND_APP_NAME="pfcd-frontend-demo"
 
 # Optional:
 # export TAG="v1"
+# export DATABASE_URL="mssql+pyodbc://<user>:<password>@<server>.database.windows.net:1433/<db>?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=yes"
 # export NEXT_PUBLIC_DEFAULT_PROVIDER="google"
 # export NEXT_PUBLIC_DEFAULT_PROCESSING_PROFILE="balanced"
 # export BACKEND_PUBLIC_URL="https://pfcd-backend-demo.azurewebsites.net"
 # export FRONTEND_PUBLIC_URL="https://pfcd-frontend-demo.azurewebsites.net"
 # export ALLOWED_ORIGINS="https://pfcd-frontend-demo.azurewebsites.net"
+# export NEXT_PUBLIC_AUTH_ENABLED="false"  # build-time, rebuild required when changed
 
 ./infra/azure/deploy_webapp.sh
 ```
@@ -53,15 +55,20 @@ az webapp config appsettings set \
 ```
 
 ## Notes
-- Backend storage paths are set to:
+- Backend app settings set by script:
   - `UPLOADS_DIR=/home/uploads`
   - `EXPORTS_DIR=/home/exports`
-  - `DATABASE_URL=sqlite:////home/pfcd.db`
+  - `DATABASE_URL` (default `sqlite:////home/pfcd.db`, override with Azure SQL connection string)
 - `WEBSITES_PORT` and `PORT` are set automatically for both apps.
 - Frontend image is built with:
   - `NEXT_PUBLIC_API_URL=/api`
   - `INTERNAL_API_URL=<backend-url>/api`
+  - `NEXT_PUBLIC_AUTH_ENABLED=<true|false>`
   This keeps browser calls same-origin through frontend rewrites.
+- `NEXT_PUBLIC_AUTH_ENABLED` is build-time in Next.js:
+  - changing this value requires rebuilding and redeploying frontend image.
+- Recommended cloud baseline:
+  - use Azure SQL via `DATABASE_URL` instead of SQLite.
 
 ## Redeploy With New Code
 Re-run the same script with a new tag:

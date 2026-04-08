@@ -3,6 +3,12 @@
 ## Purpose
 This file defines the agent operating model for the Process Documentation Agent MVP described in `PRD.md`.
 
+## Implementation Status Note
+- Product constraint remains internal demo no-auth mode.
+- Runtime now also supports optional access-code auth for hosted demos, controlled by:
+  - backend `AUTH_ENABLED`
+  - frontend `NEXT_PUBLIC_AUTH_ENABLED`
+
 The system accepts `video`, `audio`, and/or `transcript` inputs, then generates:
 - Process Definition Document (PDD)
 - SIPOC map

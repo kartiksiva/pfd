@@ -50,3 +50,6 @@ Initial scaffold for:
 - Deployment guide: `infra/azure/README.md`
 - One-command script: `./infra/azure/deploy_webapp.sh`
 - Deploys two Linux Web Apps (frontend + backend) with images built in ACR.
+
+## Replication Documentation
+- Full replication runbook: `PROJECT_REPLICATION_GUIDE.md`

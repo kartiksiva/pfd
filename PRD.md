@@ -2,6 +2,10 @@
 ## Product
 Process Documentation Agent (MVP)
 
+## Implementation Status Note
+- The original MVP requirement is no-auth internal demo mode.
+- Current implementation also supports optional access-code auth (`AUTH_ENABLED` in backend and `NEXT_PUBLIC_AUTH_ENABLED` in frontend) for controlled demos.
+
 ## 1. Objective
 Build an internal demo web app that accepts process evidence (`video`, `audio`, and/or `transcript`) and generates:
 1. Process Definition Document (PDD)
