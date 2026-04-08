@@ -17,6 +17,8 @@ Initial scaffold for:
    - `cp frontend/.env.example frontend/.env.local`
    - `cp backend/.env.example backend/.env`
 2. Fill values in `frontend/.env.local` and `backend/.env`.
+   - For internal demo mode (no login prompt), keep `AUTH_ENABLED=false` in `backend/.env` and `NEXT_PUBLIC_AUTH_ENABLED=false` in `frontend/.env.local`.
+   - If frontend and backend run on different domains with auth enabled, set `ACCESS_COOKIE_SECURE=true` and `ACCESS_COOKIE_SAMESITE=none` in `backend/.env`.
 3. Run backend:
    - `cd backend && python3 -m venv .venv && source .venv/bin/activate`
    - `pip install -r requirements.txt`
@@ -43,3 +45,8 @@ Initial scaffold for:
 ## Tests
 - Backend tests:
   - `cd backend && PYTHONDONTWRITEBYTECODE=1 .venv/bin/pytest -q`
+
+## Deploy to Azure Web App (Docker)
+- Deployment guide: `infra/azure/README.md`
+- One-command script: `./infra/azure/deploy_webapp.sh`
+- Deploys two Linux Web Apps (frontend + backend) with images built in ACR.

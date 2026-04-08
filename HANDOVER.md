@@ -5,6 +5,25 @@ Process Documentation Agent (PFCD)
 
 Repository: https://github.com/kartiksiva/pfd.git
 
+## Azure Deployment Snapshot (April 2026)
+- Frontend URL: `https://pfcd-frontend-karthick-20260408.azurewebsites.net`
+- Backend URL: `https://pfcd-backend-karthick-20260408.azurewebsites.net`
+- Resource Group: `app-pfcd-v2`
+- App Service Plan: `pfcd-dev-asp` (Linux)
+- ACR: `acrpfcdkarthick20260408`
+- Frontend image: `acrpfcdkarthick20260408.azurecr.io/pfcd-frontend:v3`
+- Backend image: `acrpfcdkarthick20260408.azurecr.io/pfcd-backend:v1`
+
+### Azure-Specific Current State
+- Frontend lock screen issue fixed in `frontend/app/AccessGate.tsx`.
+- Owner session stability fixed: owner is not force-logged-out on transient API errors.
+- Backend startup fixed by using writable runtime paths:
+  - `DATABASE_URL=sqlite:////tmp/pfcd.db`
+  - `UPLOADS_DIR=/tmp/uploads`
+  - `EXPORTS_DIR=/tmp/exports`
+- Important limitation: `/tmp` storage is ephemeral across restarts/redeploys.
+- Full migration notes/runbook: `azure.md` and `infra/azure/README.md`.
+
 ## Current Scope
 - Inputs: transcript, audio, video (any one required)
 - Providers: `google`, `openai`, `ollama`

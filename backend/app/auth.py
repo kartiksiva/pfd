@@ -113,7 +113,7 @@ def attach_session_cookie(response: JSONResponse, session: AccessSession, settin
         value=create_session_token(session, settings),
         httponly=True,
         secure=settings.access_cookie_secure,
-        samesite="lax",
+        samesite=settings.access_cookie_samesite,
         max_age=max_age,
         path="/",
     )
@@ -124,6 +124,6 @@ def clear_session_cookie(response: JSONResponse, settings: Settings) -> None:
         key=settings.access_cookie_name,
         httponly=True,
         secure=settings.access_cookie_secure,
-        samesite="lax",
+        samesite=settings.access_cookie_samesite,
         path="/",
     )

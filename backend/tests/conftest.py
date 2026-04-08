@@ -11,6 +11,7 @@ os.environ["GUEST_ACCESS_CODE"] = "PFCD-GUEST-3184"
 os.environ["GUEST_ACCESS_TIMEOUT_MINUTES"] = "30"
 os.environ["ACCESS_SESSION_SECRET"] = "test-session-secret"
 os.environ["ACCESS_COOKIE_SECURE"] = "false"
+os.environ["AUTH_ENABLED"] = "true"
 
 from app import models  # noqa: F401
 from app.database import Base, engine, ensure_schema_compat

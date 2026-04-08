@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     access_session_secret: str = Field(default="change-this-demo-secret", alias="ACCESS_SESSION_SECRET")
     access_cookie_name: str = Field(default="pfcd_access_session", alias="ACCESS_COOKIE_NAME")
     access_cookie_secure: bool = Field(default=False, alias="ACCESS_COOKIE_SECURE")
+    access_cookie_samesite: Literal["lax", "strict", "none"] = Field(default="lax", alias="ACCESS_COOKIE_SAMESITE")
+    auth_enabled: bool = Field(default=False, alias="AUTH_ENABLED")
     allowed_origins: str = Field(
         default="http://127.0.0.1:3000,http://localhost:3000",
         alias="ALLOWED_ORIGINS",

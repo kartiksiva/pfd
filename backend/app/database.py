@@ -1,11 +1,27 @@
+from pathlib import Path
+
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.config import get_settings
 
 settings = get_settings()
 
+
+def _prepare_sqlite_directory(database_url: str) -> None:
+    if not database_url.startswith("sqlite"):
+        return
+    database = make_url(database_url).database
+    if not database or database == ":memory:":
+        return
+    db_path = Path(database)
+    if not db_path.is_absolute():
+        db_path = Path.cwd() / db_path
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
 # Adapter seam: swap database_url to postgres/sqlserver URL later.
+_prepare_sqlite_directory(settings.database_url)
 engine = create_engine(settings.database_url, future=True)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, future=True)
 Base = declarative_base()

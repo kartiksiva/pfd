@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from app.auth import (
+    AccessSession,
     AuthError,
     attach_session_cookie,
     clear_session_cookie,
@@ -114,6 +115,8 @@ def _serialize_access_session(session) -> dict:
 
 
 def require_authenticated_access(request: Request):
+    if not settings.auth_enabled:
+        return AccessSession(role="owner", expires_at=None)
     return get_authenticated_session(request, settings)
 
 
@@ -151,6 +154,13 @@ def health() -> dict[str, str]:
 
 @app.post("/api/auth/session")
 def create_access_session(payload: dict = Body(...)) -> JSONResponse:
+    if not settings.auth_enabled:
+        return _success_response(
+            data={
+                "authenticated": True,
+                "session": {"role": "owner", "expires_at": None},
+            }
+        )
     code = str(payload.get("code") or "")
     session = validate_access_code(code, settings)
     response = _success_response(
@@ -165,6 +175,13 @@ def create_access_session(payload: dict = Body(...)) -> JSONResponse:
 
 @app.get("/api/auth/session")
 def get_access_session(request: Request) -> JSONResponse:
+    if not settings.auth_enabled:
+        return _success_response(
+            data={
+                "authenticated": True,
+                "session": {"role": "owner", "expires_at": None},
+            }
+        )
     session = get_authenticated_session(request, settings)
     return _success_response(
         data={
@@ -176,6 +193,13 @@ def get_access_session(request: Request) -> JSONResponse:
 
 @app.delete("/api/auth/session")
 def delete_access_session() -> JSONResponse:
+    if not settings.auth_enabled:
+        return _success_response(
+            data={
+                "authenticated": True,
+                "session": {"role": "owner", "expires_at": None},
+            }
+        )
     response = _success_response(data={"authenticated": False})
     clear_session_cookie(response, settings)
     return response
