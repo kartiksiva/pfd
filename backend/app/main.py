@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -545,7 +545,7 @@ def finalize_job(job_id: str, db: Session = Depends(get_db), _=Depends(require_a
             status_code=409,
         )
     try:
-        processed_at = datetime.utcnow()
+        processed_at = datetime.now(timezone.utc)
         artifacts = generate_exports(
             job_id=job.id,
             document=job.draft_pdd,

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import desc
@@ -35,7 +35,7 @@ def create_job(
     limits_applied: dict,
     retention_days: int = 7,
 ) -> JobRecord:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if provider == "google":
         fallback_provider = "openai"
     elif provider in {"openai", "azure_openai", "ollama"}:
@@ -91,7 +91,7 @@ def list_jobs(db: Session, *, limit: int = 50, status: Optional[str] = None) -> 
 
 
 def list_expired_jobs(db: Session, now: Optional[datetime] = None) -> list[JobRecord]:
-    now = now or datetime.utcnow()
+    now = now or datetime.now(timezone.utc)
     return db.query(JobRecord).filter(JobRecord.expires_at <= now, JobRecord.status != JobStatus.expired.value).all()
 
 
@@ -100,7 +100,7 @@ def update_job_status(db: Session, job: JobRecord, target_status: str) -> tuple[
     if target_status not in allowed:
         return False, f"Invalid status transition: {job.status} -> {target_status}"
     job.status = target_status
-    job.updated_at = datetime.utcnow()
+    job.updated_at = datetime.now(timezone.utc)
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -142,7 +142,7 @@ def update_job_metadata(
         job.error_code = error_code
     if error_message is not None:
         job.error_message = error_message
-    job.updated_at = datetime.utcnow()
+    job.updated_at = datetime.now(timezone.utc)
     db.add(job)
     db.commit()
     db.refresh(job)

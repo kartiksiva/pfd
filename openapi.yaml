@@ -297,7 +297,7 @@ components:
   schemas:
     Provider:
       type: string
-      enum: [openai, google]
+      enum: [openai, azure_openai, google, ollama]
 
     ProcessingProfile:
       type: string
@@ -310,7 +310,7 @@ components:
 
     ExportFormat:
       type: string
-      enum: [md, json, pdf]
+      enum: [md, json, pdf, docx]
 
     ApiEnvelope:
       type: object

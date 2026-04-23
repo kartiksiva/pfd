@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 from uuid import uuid4
@@ -52,7 +52,7 @@ class JobCreateResponseData(BaseModel):
     provider: Provider
     processing_profile: ProcessingProfile
     document_template: DocumentTemplate = DocumentTemplate.pdd
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class SIPOCRowModel(BaseModel):

@@ -1,7 +1,7 @@
 import shutil
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import get_settings
@@ -10,6 +10,7 @@ from app.repository import list_expired_jobs, update_job_metadata, update_job_st
 from app.schemas import JobStatus
 
 _thread_started = False
+_thread_lock = threading.Lock()
 
 
 def run_retention_sweep_once() -> dict:
@@ -20,7 +21,7 @@ def run_retention_sweep_once() -> dict:
     scanned = 0
     expired = 0
     try:
-        jobs = list_expired_jobs(db, now=datetime.utcnow())
+        jobs = list_expired_jobs(db, now=datetime.now(timezone.utc))
         scanned = len(jobs)
         for job in jobs:
             shutil.rmtree(uploads_root / job.id, ignore_errors=True)
@@ -53,8 +54,9 @@ def _retention_loop() -> None:
 
 def start_retention_scheduler() -> None:
     global _thread_started
-    if _thread_started:
-        return
-    thread = threading.Thread(target=_retention_loop, daemon=True, name="retention-scheduler")
-    thread.start()
-    _thread_started = True
+    with _thread_lock:
+        if _thread_started:
+            return
+        thread = threading.Thread(target=_retention_loop, daemon=True, name="retention-scheduler")
+        thread.start()
+        _thread_started = True

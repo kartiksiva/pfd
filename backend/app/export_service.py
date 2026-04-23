@@ -4,7 +4,7 @@ import tempfile
 from io import BytesIO
 from html import escape
 from datetime import date
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -624,7 +624,7 @@ def generate_exports(
     artifacts_dir = job_dir / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    processed_at = processed_at or datetime.utcnow()
+    processed_at = processed_at or datetime.now(timezone.utc)
     process_token = _safe_name_token(_resolve_process_name(document, process_name))
     provider_token = _safe_name_token(llm_provider or "provider")
     date_token = processed_at.strftime("%Y%m%d")

@@ -20,7 +20,7 @@ Canonical API and data schemas for the MVP described in `PRD.md`, `AGENTS.md`, a
 
 ### Provider
 ```json
-["openai", "google"]
+["openai", "azure_openai", "google", "ollama"]
 ```
 
 ### ProcessingProfile
@@ -30,7 +30,7 @@ Canonical API and data schemas for the MVP described in `PRD.md`, `AGENTS.md`, a
 
 ### ExportFormat
 ```json
-["md", "json", "pdf"]
+["md", "json", "pdf", "docx"]
 ```
 
 ## Core Objects
@@ -208,7 +208,8 @@ Canonical API and data schemas for the MVP described in `PRD.md`, `AGENTS.md`, a
   "artifacts": {
     "md": null,
     "json": null,
-    "pdf": null
+    "pdf": null,
+    "docx": null
   },
   "error_code": null,
   "error_message": null,
@@ -268,7 +269,7 @@ Success `200`:
 `multipart/form-data`
 
 Fields:
-- `provider` (required): `openai | google`
+- `provider` (required): `openai | azure_openai | google | ollama`
 - `processing_profile` (optional): `quality | balanced | low_cost` (default: `balanced`)
 - `context_notes` (optional): string (max 2000 chars)
 - `video_file` (optional): binary
@@ -340,7 +341,8 @@ Success `200`:
     "artifacts": {
       "md": null,
       "json": null,
-      "pdf": null
+      "pdf": null,
+      "docx": null
     },
     "error_code": null,
     "error_message": null,
@@ -419,7 +421,7 @@ Success `202`:
 ```
 
 ### 6) `GET /api/jobs/{job_id}/exports/{format}`
-- `{format}` must be one of: `md | json | pdf`
+- `{format}` must be one of: `md | json | pdf | docx`
 
 Success `200`:
 - Binary stream for `pdf`
