@@ -13,3 +13,12 @@ def get_provider_adapter(provider: str) -> ProviderAdapter:
     if provider == "ollama":
         return OllamaAdapter()
     return GoogleAdapter()
+
+
+def get_fallback_provider(primary: str) -> str:
+    """Return the fallback provider for a given primary provider."""
+    if primary == "google":
+        return "openai"
+    if primary in {"openai", "azure_openai", "ollama"}:
+        return "google"
+    return "google"

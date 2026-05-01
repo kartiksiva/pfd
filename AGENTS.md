@@ -19,7 +19,7 @@ Outputs are reviewed in-app and exported as `Markdown`, `JSON`, `PDF`, and `DOCX
 - MVP mode is internal demo with no authentication.
 - Accept at least one input file per job.
 - Max upload size is 500 MB per file.
-- Provider must be selectable per job: `openai`, `google`, or `ollama`.
+- Provider must be selectable per job: `openai`, `azure_openai`, `google`, or `ollama`.
 - Language support is English only.
 - SIPOC output is a single consolidated map.
 - Processing is asynchronous with job status tracking.
@@ -81,7 +81,7 @@ Minimum internal contracts for handoffs:
 1. `JobRecord`
 - `id`
 - `status`
-- `provider` (`openai|google|ollama`)
+- `provider` (`openai|azure_openai|google|ollama`)
 - `model_plan`
 - `input_manifest`
 - `limits_applied`

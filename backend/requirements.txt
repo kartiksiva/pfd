@@ -13,3 +13,4 @@ azure-identity==1.25.3
 openai==2.26.0
 python-tds==1.16.1
 pyodbc==5.1.0
+slowapi==0.1.9

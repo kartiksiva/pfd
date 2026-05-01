@@ -3,16 +3,18 @@ from io import BytesIO
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from pypdf import PdfReader
 
+from app.export_service import generate_exports
 from app.main import app
 from app.upload_validation import persist_demo_inputs
 
 
 def create_authenticated_client() -> TestClient:
     client = TestClient(app)
-    auth = client.post("/api/auth/session", json={"code": "PFCD-GUEST-3184"})
+    auth = client.post("/api/auth/session", json={"code": "PFCD-GUEST-TEST"})
     assert auth.status_code == 200
     assert auth.json()["data"]["session"]["role"] == "guest"
     return client
@@ -29,7 +31,7 @@ def test_auth_required_for_job_endpoints():
 
 def test_owner_session_has_no_expiry():
     client = TestClient(app)
-    auth = client.post("/api/auth/session", json={"code": "PFCD-OWNER-7429"})
+    auth = client.post("/api/auth/session", json={"code": "PFCD-OWNER-TEST"})
     assert auth.status_code == 200
     payload = auth.json()["data"]["session"]
     assert payload["role"] == "owner"
@@ -115,6 +117,19 @@ def test_end_to_end_job_review_finalize_export_flow(tmp_path: Path):
     assert len(pdf.content) > 0
     assert len(docx.content) > 0
 
+    job_payload = job_after_finalize.json()["data"]
+    upload_path = Path(job_payload["input_manifest"]["transcript"]["storage_key"]).parents[1]
+    export_path = Path(job_payload["artifacts"]["md"]).parents[1]
+    assert upload_path.exists()
+    assert export_path.exists()
+
+    delete = client.delete(f"/api/jobs/{job_id}")
+    assert delete.status_code == 200
+    assert delete.json()["data"]["deleted"] is True
+    assert client.get(f"/api/jobs/{job_id}").status_code == 404
+    assert not upload_path.exists()
+    assert not export_path.exists()
+
 
 def test_list_jobs_endpoint_returns_recent_jobs(tmp_path: Path):
     client = create_authenticated_client()
@@ -189,6 +204,16 @@ def test_persist_demo_inputs_copies_demo_media(tmp_path: Path):
     assert manifest["audio"]["filename"] == "DemoAudio.m4a"
     assert Path(manifest["video"]["storage_key"]).read_bytes() == b"demo-video"
     assert Path(manifest["audio"]["storage_key"]).read_bytes() == b"demo-audio"
+
+
+def test_generate_exports_rejects_invalid_job_id(tmp_path: Path):
+    with pytest.raises(ValueError, match="Invalid job_id format"):
+        generate_exports(
+            "../../etc/passwd",
+            document={},
+            sipoc=[],
+            exports_root=tmp_path,
+        )
 
 
 def test_sop_finalize_requires_complete_sop_contract(tmp_path: Path):

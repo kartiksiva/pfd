@@ -317,14 +317,18 @@ If auth is on but page bypasses gate:
 curl -X DELETE https://<frontend-domain>/api/auth/session
 ```
 
-## 13. Security and Secrets
+## 13. Known Limitations
+
+- **Cost guardrail is post-hoc:** The `ERR_PROVIDER_CAP_EXCEEDED` check fires after the provider adapter has already executed (and potentially billed). It serves as a signal for operator tuning rather than real-time cost prevention. Use `cost_band_max_usd` and `processing_profile=low_cost` to minimise exposure.
+
+## 14. Security and Secrets
 
 - Never commit real keys/passwords.
 - Keep provider secrets in Azure App Settings or Key Vault references.
 - Rotate secrets if they were exposed during troubleshooting.
 - Use strong `ACCESS_SESSION_SECRET` in production-like environments.
 
-## 14. Replicate for a New Project (Template Procedure)
+## 15. Replicate for a New Project (Template Procedure)
 
 1. Copy this repo baseline commit and rename app/repo.
 2. Create new Azure resources (or new names in existing RG):
@@ -339,14 +343,14 @@ curl -X DELETE https://<frontend-domain>/api/auth/session
 7. Run validation checklist in section 11.
 8. Save final working settings in a project-specific runbook.
 
-## 15. Recommended Next Hardening
+## 16. Recommended Next Hardening
 
 - Add database migrations for SQL Server/Postgres (instead of SQLite-only compat helper).
 - Externalize uploads/exports to durable object storage.
 - Add CI pipeline for image build + deploy + smoke tests.
 - Add explicit startup diagnostics endpoint and readiness checks.
 
-## 16. Related Docs
+## 17. Related Docs
 
 - `README.md`
 - `PRD.md`

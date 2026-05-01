@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -54,11 +54,28 @@ class Settings(BaseSettings):
     access_cookie_name: str = Field(default="pfcd_access_session", alias="ACCESS_COOKIE_NAME")
     access_cookie_secure: bool = Field(default=False, alias="ACCESS_COOKIE_SECURE")
     access_cookie_samesite: Literal["lax", "strict", "none"] = Field(default="lax", alias="ACCESS_COOKIE_SAMESITE")
-    auth_enabled: bool = Field(default=False, alias="AUTH_ENABLED")
+    auth_enabled: bool = Field(default=True, alias="AUTH_ENABLED")
     allowed_origins: str = Field(
         default="http://127.0.0.1:3000,http://localhost:3000",
         alias="ALLOWED_ORIGINS",
     )
+
+    @model_validator(mode="after")
+    def _validate_auth_secrets(self) -> "Settings":
+        if not self.auth_enabled:
+            return self
+        defaults = {
+            "access_session_secret": "change-this-demo-secret",
+            "owner_access_code": "PFCD-OWNER-7429",
+            "guest_access_code": "PFCD-GUEST-3184",
+        }
+        for field, default_val in defaults.items():
+            if getattr(self, field) == default_val:
+                raise ValueError(
+                    f"{field} is still set to its default value. "
+                    "Override it via environment variable before enabling AUTH_ENABLED=true."
+                )
+        return self
 
     @property
     def allowed_origins_list(self) -> list[str]:

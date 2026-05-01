@@ -1,3 +1,5 @@
+import logging
+import shutil
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -8,6 +10,9 @@ from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, Form, Query, 
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -25,6 +30,7 @@ from app.pdd_template import render_document_markdown
 from app.provider_health import check_providers_health
 from app.retention import run_retention_sweep_once, start_retention_scheduler
 from app.repository import create_job as repo_create_job
+from app.repository import delete_job as repo_delete_job
 from app.repository import get_job as repo_get_job
 from app.repository import list_jobs as repo_list_jobs
 from app.repository import update_job_metadata, update_job_status
@@ -45,6 +51,8 @@ from app.worker import process_job_async
 settings = get_settings()
 uploads_root = Path(settings.uploads_dir)
 exports_root = Path(settings.exports_dir)
+logger = logging.getLogger(__name__)
+limiter = Limiter(key_func=get_remote_address)
 
 
 def _resolve_demo_root() -> Path:
@@ -73,6 +81,8 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins_list,
@@ -231,7 +241,9 @@ def trigger_retention_sweep(_=Depends(require_authenticated_access)) -> JSONResp
 
 
 @app.post("/api/jobs")
+@limiter.limit("10/minute")
 async def create_job(
+    request: Request,
     background_tasks: BackgroundTasks,
     provider: Provider = Form(default=Provider.google.value),
     processing_profile: ProcessingProfile = Form(default=ProcessingProfile.balanced.value),
@@ -290,7 +302,9 @@ async def create_job(
 
 
 @app.post("/api/jobs/demo")
+@limiter.limit("10/minute")
 def create_demo_job(
+    request: Request,
     background_tasks: BackgroundTasks,
     provider: Provider = Form(default=Provider.google.value),
     processing_profile: ProcessingProfile = Form(default=ProcessingProfile.balanced.value),
@@ -452,8 +466,8 @@ def update_draft(job_id: str, payload: dict = Body(...), db: Session = Depends(g
         )
 
     document_type = payload.get("document_type") or job.document_template or DocumentTemplate.pdd.value
-    document = payload.get("document")
-    sipoc = payload.get("sipoc")
+    document = payload.get("document", payload.get("draft_pdd"))
+    sipoc = payload.get("sipoc", payload.get("draft_sipoc"))
     if not isinstance(document, dict) or not isinstance(sipoc, list):
         return _error_response(
             code="ERR_INVALID_DRAFT_PAYLOAD",
@@ -635,5 +649,20 @@ def get_export(job_id: str, fmt: str, db: Session = Depends(get_db), _=Depends(r
 
 
 @app.delete("/api/jobs/{job_id}")
-def delete_job(job_id: str, _=Depends(require_authenticated_access)) -> ApiEnvelope:
-    return ApiEnvelope(success=True, data={"job_id": job_id, "deleted": True}, error=None)
+def delete_job_endpoint(
+    job_id: str,
+    db: Session = Depends(get_db),
+    _=Depends(require_authenticated_access),
+) -> JSONResponse:
+    job = repo_get_job(db, job_id)
+    if not job:
+        return _error_response(
+            code="ERR_JOB_NOT_FOUND",
+            message="Job not found.",
+            details={"job_id": job_id},
+            status_code=404,
+        )
+    shutil.rmtree(uploads_root / job_id, ignore_errors=True)
+    shutil.rmtree(exports_root / job_id, ignore_errors=True)
+    repo_delete_job(db, job_id)
+    return _success_response(data={"job_id": job_id, "deleted": True})

@@ -7,8 +7,13 @@ import { apiBase, apiFetch, joinApiPath } from "./api";
 const defaultProvider = process.env.NEXT_PUBLIC_DEFAULT_PROVIDER ?? "google";
 const defaultProfile = process.env.NEXT_PUBLIC_DEFAULT_PROCESSING_PROFILE ?? "balanced";
 const defaultTemplate = process.env.NEXT_PUBLIC_DEFAULT_DOCUMENT_TEMPLATE ?? "pdd";
+const MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024;
+const ALLOWED_TRANSCRIPT_MIMES = new Set(["text/plain", "text/markdown", "application/pdf", "text/vtt"]);
+const ALLOWED_AUDIO_MIMES = /^audio\//;
+const ALLOWED_VIDEO_MIMES = /^video\//;
 
 type JobStatus = "queued" | "processing" | "needs_review" | "completed" | "failed" | "expired";
+type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 const stageOrder = [
   "queued",
@@ -335,6 +340,10 @@ export default function HomePage() {
   const [jobId, setJobId] = useState("");
   const [job, setJob] = useState<any>(null);
   const [draftMarkdown, setDraftMarkdown] = useState("");
+  const [editedDraftMarkdown, setEditedDraftMarkdown] = useState("");
+  const [draftDocument, setDraftDocument] = useState<Record<string, any> | null>(null);
+  const [draftSipoc, setDraftSipoc] = useState<any[]>([]);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [statusMsg, setStatusMsg] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -375,6 +384,7 @@ export default function HomePage() {
           : "No active job. Submit a new job to get started.");
   const canDownloadDraftMarkdown = Boolean(jobId && draftMarkdown);
   const selectedTemplatePreview = templatePreviews[job?.document_template ?? documentTemplate] ?? templatePreviews.pdd;
+  const showTranscriptionWarning = Boolean((audioFile || videoFile) && !transcriptFile && profile !== "quality");
 
   async function toJsonSafe(res: Response): Promise<any> {
     try {
@@ -389,6 +399,26 @@ export default function HomePage() {
     if (!canSubmit) {
       setError("Upload at least one file.");
       return;
+    }
+    const filesToCheck = [
+      {
+        file: transcriptFile,
+        label: "Transcript",
+        mimeCheck: (type: string) => ALLOWED_TRANSCRIPT_MIMES.has(type) || type.startsWith("text/"),
+      },
+      { file: audioFile, label: "Audio", mimeCheck: (type: string) => ALLOWED_AUDIO_MIMES.test(type) },
+      { file: videoFile, label: "Video", mimeCheck: (type: string) => ALLOWED_VIDEO_MIMES.test(type) },
+    ];
+    for (const { file, label, mimeCheck } of filesToCheck) {
+      if (!file) continue;
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        setError(`${label} file exceeds the 500 MB limit (${(file.size / 1024 / 1024).toFixed(0)} MB).`);
+        return;
+      }
+      if (!mimeCheck(file.type)) {
+        setError(`${label} file type "${file.type || "unknown"}" is not supported.`);
+        return;
+      }
     }
     setIsSubmitting(true);
     const fd = new FormData();
@@ -411,6 +441,10 @@ export default function HomePage() {
       setJobId(payload.data.job_id);
       setJob(null);
       setDraftMarkdown("");
+      setEditedDraftMarkdown("");
+      setDraftDocument(null);
+      setDraftSipoc([]);
+      setSaveStatus("idle");
       setIsReviewOpen(false);
       setStatusMsg("Job submitted.");
     } catch {
@@ -440,6 +474,10 @@ export default function HomePage() {
       setJobId(payload.data.job_id);
       setJob(null);
       setDraftMarkdown("");
+      setEditedDraftMarkdown("");
+      setDraftDocument(null);
+      setDraftSipoc([]);
+      setSaveStatus("idle");
       setIsReviewOpen(false);
       setStatusMsg("Demo job submitted.");
     } catch {
@@ -466,7 +504,11 @@ export default function HomePage() {
       const res = await apiFetch(`/api/jobs/${id}/draft`);
       const payload = await toJsonSafe(res);
       if (res.ok && payload?.success) {
-        setDraftMarkdown(payload.data.document_markdown ?? "");
+        const markdown = payload.data.document_markdown ?? "";
+        setDraftMarkdown(markdown);
+        setEditedDraftMarkdown(markdown);
+        setDraftDocument(payload.data.document ?? null);
+        setDraftSipoc(Array.isArray(payload.data.sipoc) ? payload.data.sipoc : []);
       }
     } catch {
       setError(`Cannot reach API at ${apiBase || "/api"}.`);
@@ -492,7 +534,37 @@ export default function HomePage() {
 
   function openReview() {
     if (!canReview) return;
+    setEditedDraftMarkdown(draftMarkdown);
+    setSaveStatus("idle");
     setIsReviewOpen(true);
+  }
+
+  async function saveDraftChanges() {
+    if (!jobId || !draftDocument || !Array.isArray(draftSipoc)) return;
+    setError("");
+    setSaveStatus("saving");
+    try {
+      const res = await apiFetch(`/api/jobs/${jobId}/draft`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          document_type: job?.document_template ?? documentTemplate,
+          draft_pdd: draftDocument,
+          draft_sipoc: draftSipoc,
+        }),
+      });
+      const payload = await toJsonSafe(res);
+      if (!res.ok || !payload?.success) {
+        setSaveStatus("error");
+        setError(payload?.error?.message ?? "Failed to save draft.");
+        return;
+      }
+      setDraftMarkdown(editedDraftMarkdown);
+      setSaveStatus("saved");
+    } catch {
+      setSaveStatus("error");
+      setError(`Cannot reach API at ${apiBase || "/api"}.`);
+    }
   }
 
   function downloadDraftMarkdown() {
@@ -635,6 +707,12 @@ export default function HomePage() {
                     <UploadPanel title="Video" accept="video/*" file={videoFile} hint="MP4, MOV, AVI, WEBM" onChange={setVideoFile} />
                   </div>
                 </div>
+                {showTranscriptionWarning ? (
+                  <p className="warningNote">
+                    <strong>Heads up:</strong> In Balanced / Low Cost mode, audio and video are not transcribed. Only metadata is used.
+                    For best results, upload a transcript alongside your media, or switch to the <strong>Quality</strong> profile.
+                  </p>
+                ) : null}
                 <p className="fieldNote">
                   Or skip uploads and run the bundled demo media from the server with the current processing settings.
                 </p>
@@ -852,13 +930,26 @@ export default function HomePage() {
                   <h3>Markdown Output</h3>
                   <p className="muted">Generated Markdown draft for review before finalization.</p>
                 </div>
-                <textarea className="reviewTextarea reviewReadonly" rows={22} value={draftMarkdown} readOnly />
+                <textarea
+                  className="reviewTextarea"
+                  rows={22}
+                  value={editedDraftMarkdown}
+                  onChange={(event) => {
+                    setEditedDraftMarkdown(event.target.value);
+                    setSaveStatus("idle");
+                  }}
+                />
+                {saveStatus === "saved" ? <p className="saveStatus">Saved.</p> : null}
+                {saveStatus === "error" ? <p className="saveStatus saveStatusError">Draft save failed.</p> : null}
               </section>
             </div>
 
             <div className="modalFooter">
               <button className="secondaryButton" type="button" onClick={downloadDraftMarkdown} disabled={!canDownloadDraftMarkdown}>
                 Download Markdown Draft
+              </button>
+              <button className="secondaryButton" type="button" onClick={saveDraftChanges} disabled={!canFinalize || saveStatus === "saving"}>
+                {saveStatus === "saving" ? "Saving..." : "Save Changes"}
               </button>
               <button type="button" onClick={finalizeJob} disabled={!canFinalize}>
                 Finalize and Generate Exports

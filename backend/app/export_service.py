@@ -7,6 +7,7 @@ from datetime import date
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
+from uuid import UUID
 
 from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
@@ -620,6 +621,11 @@ def generate_exports(
     llm_provider: Optional[str] = None,
     processed_at: Optional[datetime] = None,
 ) -> Dict:
+    try:
+        UUID(job_id)
+    except (ValueError, AttributeError) as exc:
+        raise ValueError(f"Invalid job_id format: {job_id!r}") from exc
+
     job_dir = exports_root / job_id
     artifacts_dir = job_dir / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)

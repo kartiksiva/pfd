@@ -27,7 +27,7 @@ Outputs must be reviewable/editable in-app and exportable as Markdown, JSON, PDF
   - Transcript file
 - Async processing with job status tracking
 - Runtime model provider selection per job
-- Supported providers in MVP: OpenAI, Google, and Ollama
+- Supported providers in MVP: OpenAI, Azure OpenAI, Google, and Ollama
 - English-only generation
 - Fixed-template PDD
 - Single consolidated SIPOC map
@@ -65,7 +65,7 @@ Outputs must be reviewable/editable in-app and exportable as Markdown, JSON, PDF
   - Audio: transcription + step extraction
   - Transcript: structure extraction
 - System shall merge signals when multiple inputs exist.
-- System shall route processing through selected provider (`openai`, `google`, or `ollama`).
+- System shall route processing through selected provider (`openai`, `azure_openai`, `google`, or `ollama`).
 - System shall attempt transcription fallback before marking provider-stage failure.
 
 ### FR-3 Generation
@@ -98,7 +98,7 @@ Outputs must be reviewable/editable in-app and exportable as Markdown, JSON, PDF
 - System shall expose provider and model plan in job status response.
 
 ### FR-9 Model Evaluation and Defaulting
-- System shall support benchmark runs across OpenAI and Google paths.
+- System shall support benchmark runs across OpenAI, Azure OpenAI, and Google paths.
 - System shall report quality, latency, and cost metrics per provider.
 - System shall allow a configurable default provider while retaining per-job override.
 
@@ -111,7 +111,7 @@ Outputs must be reviewable/editable in-app and exportable as Markdown, JSON, PDF
 - Provider abstraction to avoid vendor lock-in in orchestration logic.
 
 ## 7. API Requirements (v1)
-- `POST /api/jobs` (multipart create job; includes `provider=openai|google|ollama`)
+- `POST /api/jobs` (multipart create job; includes `provider=openai|azure_openai|google|ollama`)
 - `GET /api/jobs/{job_id}` (status/progress)
 - `GET /api/jobs/{job_id}/draft` (draft PDD + SIPOC)
 - `PUT /api/jobs/{job_id}/draft` (save edits)
@@ -144,12 +144,12 @@ Outputs must be reviewable/editable in-app and exportable as Markdown, JSON, PDF
 4. Invalid file type or >500 MB file is rejected with clear error.
 5. Finalized job exports all four formats (`md`, `json`, `pdf`, `docx`).
 6. Job artifacts expire and are deleted after 7 days.
-7. User can choose `openai`, `google`, or `ollama` per job and view provider in status.
+7. User can choose `openai`, `azure_openai`, `google`, or `ollama` per job and view provider in status.
 8. Fallback transcription path is attempted before hard provider-stage failure.
 
 ## 11. Implementation Stack (MVP)
 - Frontend: Next.js
 - Backend: FastAPI
 - Processing: async worker queue
-- AI: managed/local multimodal APIs (OpenAI + Google + Ollama, runtime selectable)
+- AI: managed/local multimodal APIs (OpenAI + Azure OpenAI + Google + Ollama, runtime selectable)
 - Deployment: local Docker
