@@ -328,6 +328,35 @@ function UploadPanel({ accept, file, hint, title, onChange }: UploadPanelProps) 
   );
 }
 
+const PDD_EDITABLE_FIELDS: { key: string; label: string }[] = [
+  { key: "purpose", label: "Purpose" },
+  { key: "scope", label: "Scope" },
+  { key: "triggers", label: "Triggers (one per line)" },
+  { key: "preconditions", label: "Preconditions (one per line)" },
+  { key: "roles", label: "Roles (one per line)" },
+  { key: "systems", label: "Systems (one per line)" },
+  { key: "business_rules", label: "Business Rules (one per line)" },
+  { key: "exceptions", label: "Exceptions (one per line)" },
+  { key: "outputs", label: "Outputs (one per line)" },
+  { key: "metrics", label: "Metrics (one per line)" },
+  { key: "risks", label: "Risks (one per line)" },
+];
+
+function initEditableFields(doc: Record<string, any>): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const { key } of PDD_EDITABLE_FIELDS) {
+    const val = doc[key];
+    if (typeof val === "string") {
+      result[key] = val;
+    } else if (Array.isArray(val)) {
+      result[key] = (val as string[]).filter(Boolean).join("\n");
+    } else {
+      result[key] = "";
+    }
+  }
+  return result;
+}
+
 export default function HomePage() {
   const [provider, setProvider] = useState(defaultProvider);
   const [profile, setProfile] = useState(defaultProfile);
@@ -343,6 +372,7 @@ export default function HomePage() {
   const [editedDraftMarkdown, setEditedDraftMarkdown] = useState("");
   const [draftDocument, setDraftDocument] = useState<Record<string, any> | null>(null);
   const [draftSipoc, setDraftSipoc] = useState<any[]>([]);
+  const [editableFields, setEditableFields] = useState<Record<string, string>>({});
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [statusMsg, setStatusMsg] = useState("");
   const [error, setError] = useState("");
@@ -385,6 +415,7 @@ export default function HomePage() {
   const canDownloadDraftMarkdown = Boolean(jobId && draftMarkdown);
   const selectedTemplatePreview = templatePreviews[job?.document_template ?? documentTemplate] ?? templatePreviews.pdd;
   const showTranscriptionWarning = Boolean((audioFile || videoFile) && !transcriptFile && profile !== "quality");
+  const isPdd = (job?.document_template ?? documentTemplate) === "pdd";
 
   async function toJsonSafe(res: Response): Promise<any> {
     try {
@@ -509,6 +540,9 @@ export default function HomePage() {
         setEditedDraftMarkdown(markdown);
         setDraftDocument(payload.data.document ?? null);
         setDraftSipoc(Array.isArray(payload.data.sipoc) ? payload.data.sipoc : []);
+        if (payload.data.document && typeof payload.data.document === "object") {
+          setEditableFields(initEditableFields(payload.data.document));
+        }
       }
     } catch {
       setError(`Cannot reach API at ${apiBase || "/api"}.`);
@@ -535,6 +569,9 @@ export default function HomePage() {
   function openReview() {
     if (!canReview) return;
     setEditedDraftMarkdown(draftMarkdown);
+    if (draftDocument) {
+      setEditableFields(initEditableFields(draftDocument));
+    }
     setSaveStatus("idle");
     setIsReviewOpen(true);
   }
@@ -543,13 +580,29 @@ export default function HomePage() {
     if (!jobId || !draftDocument || !Array.isArray(draftSipoc)) return;
     setError("");
     setSaveStatus("saving");
+    const docType = job?.document_template ?? documentTemplate;
+    let updatedDoc: Record<string, any>;
+    if (docType === "pdd") {
+      updatedDoc = { ...draftDocument };
+      for (const { key } of PDD_EDITABLE_FIELDS) {
+        const displayVal = editableFields[key] ?? "";
+        const original = draftDocument[key];
+        if (Array.isArray(original)) {
+          updatedDoc[key] = displayVal.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+        } else {
+          updatedDoc[key] = displayVal;
+        }
+      }
+    } else {
+      updatedDoc = draftDocument;
+    }
     try {
       const res = await apiFetch(`/api/jobs/${jobId}/draft`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          document_type: job?.document_template ?? documentTemplate,
-          draft_pdd: draftDocument,
+          document_type: docType,
+          draft_pdd: updatedDoc,
           draft_sipoc: draftSipoc,
         }),
       });
@@ -559,8 +612,8 @@ export default function HomePage() {
         setError(payload?.error?.message ?? "Failed to save draft.");
         return;
       }
-      setDraftMarkdown(editedDraftMarkdown);
       setSaveStatus("saved");
+      await loadDraft(jobId);
     } catch {
       setSaveStatus("error");
       setError(`Cannot reach API at ${apiBase || "/api"}.`);
@@ -927,18 +980,39 @@ export default function HomePage() {
 
               <section className="modalPane">
                 <div className="modalPaneHeader">
-                  <h3>Markdown Output</h3>
-                  <p className="muted">Generated Markdown draft for review before finalization.</p>
+                  <h3>{isPdd ? "Document Fields" : "Markdown Output"}</h3>
+                  <p className="muted">
+                    {isPdd
+                      ? "Edit each section below. Steps are read-only — download the draft to edit them."
+                      : "Read-only preview — download the draft to edit manually."}
+                  </p>
                 </div>
-                <textarea
-                  className="reviewTextarea"
-                  rows={22}
-                  value={editedDraftMarkdown}
-                  onChange={(event) => {
-                    setEditedDraftMarkdown(event.target.value);
-                    setSaveStatus("idle");
-                  }}
-                />
+                {isPdd ? (
+                  <div className="reviewFieldList">
+                    {PDD_EDITABLE_FIELDS.map(({ key, label }) => (
+                      <div key={key} className="reviewField">
+                        <label className="reviewFieldLabel">{label}</label>
+                        <textarea
+                          className="reviewTextarea reviewFieldTextarea"
+                          rows={3}
+                          value={editableFields[key] ?? ""}
+                          disabled={saveStatus === "saving"}
+                          onChange={(e) => {
+                            setEditableFields((prev) => ({ ...prev, [key]: e.target.value }));
+                            setSaveStatus("idle");
+                          }}
+                        />
+                      </div>
+                    ))}
+                    {draftDocument?.steps ? (
+                      <p className="reviewStepsNote muted">
+                        Steps ({Array.isArray(draftDocument.steps) ? draftDocument.steps.length : 0} extracted) — edit after export via the downloaded document.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <textarea className="reviewTextarea reviewReadonly" rows={22} value={editedDraftMarkdown} readOnly />
+                )}
                 {saveStatus === "saved" ? <p className="saveStatus">Saved.</p> : null}
                 {saveStatus === "error" ? <p className="saveStatus saveStatusError">Draft save failed.</p> : null}
               </section>
