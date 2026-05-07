@@ -5,6 +5,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.models import JobRecord
+from app.providers.factory import get_fallback_provider
 from app.schemas import JobStatus
 
 ALLOWED_TRANSITIONS = {
@@ -36,12 +37,7 @@ def create_job(
     retention_days: int = 7,
 ) -> JobRecord:
     now = datetime.now(timezone.utc)
-    if provider == "google":
-        fallback_provider = "openai"
-    elif provider in {"openai", "azure_openai", "ollama"}:
-        fallback_provider = "google"
-    else:
-        fallback_provider = "google"
+    fallback_name = get_fallback_provider(provider)
     payload = {
         "status": JobStatus.queued.value,
         "provider": provider,
@@ -54,7 +50,7 @@ def create_job(
             "transcription_model": "",
             "multimodal_model": "",
             "generation_model": "",
-            "fallback_transcription": {"provider": fallback_provider, "model": ""},
+            "fallback_transcription": {"provider": fallback_name, "model": ""},
         },
         "input_manifest": input_manifest,
         "limits_applied": limits_applied,
@@ -74,7 +70,11 @@ def create_job(
         payload["id"] = job_id
     job = JobRecord(**payload)
     db.add(job)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(job)
     return job
 
@@ -102,7 +102,11 @@ def update_job_status(db: Session, job: JobRecord, target_status: str) -> tuple[
     job.status = target_status
     job.updated_at = datetime.now(timezone.utc)
     db.add(job)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(job)
     return True, "ok"
 
@@ -144,6 +148,23 @@ def update_job_metadata(
         job.error_message = error_message
     job.updated_at = datetime.now(timezone.utc)
     db.add(job)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(job)
     return job
+
+
+def delete_job(db: Session, job_id: str) -> bool:
+    job = get_job(db, job_id)
+    if not job:
+        return False
+    db.delete(job)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return True

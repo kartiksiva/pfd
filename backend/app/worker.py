@@ -1,3 +1,4 @@
+import logging
 import time
 from typing import Optional
 
@@ -9,33 +10,27 @@ from app.pipelines.media_understanding import build_media_understanding_payload
 from app.pipelines.process_extraction import extract_process_structure
 from app.pipelines.transcript_media_consistency import verify_transcript_media_consistency
 from app.pipelines.quality_checks import run_quality_checks
-from app.providers.factory import get_provider_adapter
+from app.providers.factory import get_fallback_provider, get_provider_adapter
 from app.repository import get_job, update_job_metadata, update_job_status
 from app.schemas import JobStatus
 
-
-def _fallback_provider(primary: str) -> str:
-    if primary == "google":
-        return "openai"
-    if primary in {"openai", "azure_openai"}:
-        return "google"
-    return "google"
+logger = logging.getLogger(__name__)
 
 
 def _set_failure(db: Session, job_id: str, code: str, message: str) -> None:
     job = get_job(db, job_id)
     if not job:
+        logger.warning("_set_failure called for unknown job_id=%s (code=%s)", job_id, code)
         return
     if job.status in {JobStatus.queued.value, JobStatus.processing.value, JobStatus.needs_review.value}:
-        ok, _ = update_job_status(db, job, JobStatus.failed.value)
-        if ok:
-            update_job_metadata(
-                db,
-                job,
-                error_code=code,
-                error_message=message[:2000],
-                progress={"stage": "failed", "percent": 100},
-            )
+        update_job_metadata(
+            db,
+            job,
+            error_code=code,
+            error_message=message[:2000],
+            progress={"stage": "failed", "percent": 100},
+        )
+        update_job_status(db, job, JobStatus.failed.value)
 
 
 def _is_timeout(job, started_at: float) -> bool:
@@ -68,6 +63,7 @@ def process_job_async(job_id: str) -> None:
     try:
         job = get_job(db, job_id)
         if not job:
+            logger.error("process_job_async: job_id=%s not found in DB; cannot process", job_id)
             return
 
         ok, msg = update_job_status(db, job, JobStatus.processing.value)
@@ -106,8 +102,8 @@ def process_job_async(job_id: str) -> None:
                     "primary_error": primary_error,
                 },
             )
-            fallback_provider = _fallback_provider(requested_provider)
-            fallback = get_provider_adapter(fallback_provider)
+            fallback_name = get_fallback_provider(requested_provider)
+            fallback = get_provider_adapter(fallback_name)
             try:
                 result = fallback.run(
                     job.input_manifest,
@@ -115,7 +111,7 @@ def process_job_async(job_id: str) -> None:
                     document_template=job.document_template,
                     context_notes=job.context_notes,
                 )
-                execution_provider = result.evidence.provider or fallback_provider
+                execution_provider = result.evidence.provider or fallback_name
             except Exception as fallback_exc:
                 _set_failure(
                     db,
@@ -125,6 +121,9 @@ def process_job_async(job_id: str) -> None:
                 )
                 return
 
+        # NOTE: Cost guardrail is evaluated after the provider adapter has already run.
+        # This catches future jobs once the operator adjusts cost_band_max_usd, but does
+        # not prevent the current job from being billed. Acceptable MVP limitation.
         if _violates_cost_guardrail(job, result.usage_cost_estimate):
             _set_failure(
                 db,

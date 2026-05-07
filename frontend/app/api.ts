@@ -8,9 +8,20 @@ export function joinApiPath(input: string): string {
   return `${apiBase}${path}`;
 }
 
-export async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
-  return fetch(joinApiPath(input), {
-    ...init,
-    credentials: "include",
-  });
+export async function apiFetch(
+  input: string,
+  init?: RequestInit & { timeoutMs?: number },
+): Promise<Response> {
+  const { timeoutMs = 30_000, ...fetchInit } = init ?? {};
+  const controller = new AbortController();
+  const timerId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(joinApiPath(input), {
+      ...fetchInit,
+      credentials: "include",
+      signal: fetchInit.signal ?? controller.signal,
+    });
+  } finally {
+    clearTimeout(timerId);
+  }
 }

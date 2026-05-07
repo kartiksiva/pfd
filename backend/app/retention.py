@@ -1,3 +1,4 @@
+import logging
 import shutil
 import threading
 import time
@@ -8,6 +9,8 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.repository import list_expired_jobs, update_job_metadata, update_job_status
 from app.schemas import JobStatus
+
+logger = logging.getLogger(__name__)
 
 _thread_started = False
 _thread_lock = threading.Lock()
@@ -24,16 +27,16 @@ def run_retention_sweep_once() -> dict:
         jobs = list_expired_jobs(db, now=datetime.now(timezone.utc))
         scanned = len(jobs)
         for job in jobs:
-            shutil.rmtree(uploads_root / job.id, ignore_errors=True)
-            shutil.rmtree(exports_root / job.id, ignore_errors=True)
-            update_job_metadata(
-                db,
-                job,
-                artifacts={"md": None, "json": None, "pdf": None, "docx": None},
-                progress={"stage": "expired", "percent": 100},
-            )
             ok, _ = update_job_status(db, job, JobStatus.expired.value)
             if ok:
+                shutil.rmtree(uploads_root / job.id, ignore_errors=True)
+                shutil.rmtree(exports_root / job.id, ignore_errors=True)
+                update_job_metadata(
+                    db,
+                    job,
+                    artifacts={"md": None, "json": None, "pdf": None, "docx": None},
+                    progress={"stage": "expired", "percent": 100},
+                )
                 expired += 1
         return {"scanned": scanned, "expired": expired}
     finally:
@@ -48,7 +51,7 @@ def _retention_loop() -> None:
             run_retention_sweep_once()
         except Exception as exc:
             # Retention should not crash the app loop.
-            print(f"[retention] sweep failed: {exc}")
+            logger.exception("[retention] sweep failed: %s", exc)
         time.sleep(interval)
 
 
