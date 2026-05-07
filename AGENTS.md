@@ -186,3 +186,35 @@ Minimum internal contracts for handoffs:
 5. Export stack for Markdown/JSON/PDF.
 6. Retention scheduler and cleanup jobs.
 7. End-to-end acceptance tests for transcript-only, audio-only, and video+transcript.
+
+
+<claude-mem-context>
+# Memory Context
+
+# [PFCD] recent context, 2026-05-07 9:22am GMT+5:30
+
+Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision
+Format: ID TIME TYPE TITLE
+Fetch details: get_observations([IDs]) | Search: mem-search skill
+
+Stats: 14 obs (5,911t read) | 627,563t work | 99% savings
+
+### May 1, 2026
+434 12:40p 🔵 PFCD-V2 Code Review Session Kickoff — Project Structure and Git State Mapped
+436 12:41p 🔵 PFCD-V2 Full Backend Architecture — Deep Code Review Mapping Complete
+437 " 🔵 PFCD-V2 Structured Extraction + Process Pipeline — LLM Prompt Schema and Normalization Logic Mapped
+438 " 🔵 PFCD-V2 Security Issues Found in Code Review — Stubs, Secrets, and Hardcoded Logic
+439 " 🔵 PFCD-V2 Frontend Architecture — Next.js 15 Single-Page App with Job Polling and Review Modal
+444 12:43p 🔵 PFCD-V2 Test Suite — 6 Integration Tests Fail Locally Due to Hardcoded /app/uploads Path
+445 " 🔵 PFCD-V2 .env File Contains Live API Keys Committed to Repo
+446 " 🔵 PFCD-V2 Ollama Adapter — Transcription is Placeholder, Media Not Actually Processed
+447 " 🔵 PFCD-V2 Quality Checks Pipeline — Score Calculation and Operational Fact Validation Logic Mapped
+### May 7, 2026
+501 9:21a 🔵 PFCD Git State — code-review-remediation Branch with Unstaged Changes
+502 " 🔵 PFCD Git Index Write Permission Denied — Blocking All Staging Operations
+504 " ✅ PFCD Git — Stash/Switch Workaround Succeeded, Files Restored onto Main
+506 9:22a ✅ PFCD Main Branch — Agent Guidance and Review Artifacts Committed
+508 " 🔵 PFCD Sandbox — No Network Access to GitHub, Push Blocked
+
+Access 628k tokens of past work via get_observations([IDs]) or mem-search skill.
+</claude-mem-context>
